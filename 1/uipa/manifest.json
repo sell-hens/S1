@@ -1,0 +1,35 @@
+{
+ "manifest_version": 3,
+ "name": "小U实践助手",
+ "version": "1.0",
+ "description": "一个使用侧边栏展示实验手册和智能体的chrome插件",
+ "icons": {
+  "16": "images/icon-16.png",
+  "48": "images/icon-48.png"
+ },
+ "permissions": ["sidePanel", "storage", "activeTab", "tabs"],
+ "side_panel": {
+  "default_path": "sidepanel.html"
+ },
+ "background": {
+  "service_worker": "background.js"
+ },
+ "action": {
+  "default_title": "点击打开侧边栏"
+ },
+ "host_permissions": ["http://*/api/*", "https://*/api/*"],
+ "web_accessible_resources": [
+  {
+   "resources": ["version.json"],
+   "matches": ["<all_urls>"]
+  }
+ ],
+ "commands": {
+  "open-side-panel": {
+   "suggested_key": {
+    "default": "Alt+G"
+   },
+   "description": "Open the side panel"
+  }
+ }
+}

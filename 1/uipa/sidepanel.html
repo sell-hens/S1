@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+ <head>
+  <meta charset="UTF-8" />
+  <title>Chrome Side Panel</title>
+  <!-- <link rel="stylesheet" type="text/css" href="ckeditor.css" /> -->
+
+  <style>
+   body {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    font-size: 14px;
+    font-family: Arial, sans-serif;
+   }
+   .el-message-box__title {
+    font-weight: bold;
+    font-size: 14px !important;
+   }
+   textarea {
+    font-family: "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji",
+     "Segoe UI Emoji", "Segoe UI Symbol" !important;
+   }
+   .xgplayer-skin-default .xgplayer-progress-played {
+    background-image: linear-gradient(-90deg, #00b2ff, #00b2ff) !important;
+   }
+   .xgplayer-start .xgplayer-icon-play svg {
+    background: #00b2ff;
+    fill: #fff !important;
+   }
+   .xgplayer-fullscreen {
+    display: none !important;
+   }
+
+   .viewer-one-to-one,
+   .viewer-reset,
+   .viewer-prev,
+   .viewer-play,
+   .viewer-next {
+    display: none !important;
+   }
+   ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+   }
+
+   ::-webkit-scrollbar-track {
+    background: #f2f2f2;
+    border-radius: 5px;
+   }
+
+   ::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 5px;
+   }
+   ::-webkit-scrollbar-thumb:hover {
+    background: #438cd8;
+   }
+
+   ::-webkit-scrollbar-corner {
+    background: #666;
+   }
+  </style>
+ </head>
+ <body>
+  <div id="app"></div>
+  <script type="text/javascript" src="ckeditor.js?v=1.3"></script>
+  <script src="sidepanel.js"></script>
+ </body>
+</html>

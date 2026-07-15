@@ -1,0 +1,875 @@
+一、实验介绍
+1. 实验目的
+
+• 理解NFC工作原理与应用场景
+
+• 掌握PN532模块功能命令格式
+
+• 掌握PN532模块的操作使用方法
+
+• 掌握PN532驱动编程方法
+
+• 实现PN532读写卡功能
+
+2. 实验内容
+
+NFC是当前手机等各智能终端常用技术，在打卡、支付等各方面中都有广泛应用。本实验通过AU100开发板自带的PN532模块实现了NFC对Mifare S50标签卡的数据读写，通过本实验可深入理解NFC协议的交互流程，加强STM32的UART的编程，实验内容主要如下：
+
+1） NFC工程创建
+
+2） NFC串口通讯实现
+
+3） NFC基础命令实现
+
+4） NFC读写流程实现
+
+5） NFC测试示例实现
+
+3. 实验知识点
+
+• NFC协议原理
+
+• PN532命令格式
+
+• PN532读写流程
+
+• S50卡储存结构
+
+• STM32串口编程
+
+4. 实验时长
+
+共4学时，学时分配如下：
+
+• NFC工程创建（0.5学时）
+
+• NFC串口通讯实现（1学时）
+
+• NFC基础命令实现（1学时）
+
+• NFC读写流程实现（0.5学时）
+
+• NFC测试示例实现（1学时）
+
+5. 实验环境
+
+• AU100开发板-STM32F407
+
+• Keil MDK 5.36
+
+• Keil.STM32F4xx_DFP.2.15.0
+
+• STM32F4xx_StdPeriph_Driver v1.81
+
+• Windows 10
+
+二、实验分析
+1） NFC工程创建
+
+• 硬件连接
+
+• 创建工程文件
+
+2） NFC串口通讯实现
+
+• 模块初始化
+
+• 串口数据收发
+
+• 串口数据校验
+
+• 串口数据清零
+
+3） NFC基础命令实现
+
+• 唤醒命令WakeUp
+
+• SAM配置命令
+
+• 寻卡命令
+
+• KeyA验证命令
+
+• 写入数据命令
+
+• 读取数据命令
+
+4） NFC读写流程实现
+
+• 写卡流程
+
+• 读卡流程
+
+5） NFC测试示例实现
+
+• 测试示例创建
+
+• 测试数据生成与检测
+
+• 测试示例主程序
+
+三、实验步骤
+NFC工程创建
+1）硬件连接
+
+AU100开发板的PN532 模块与FPR指纹识别模块共用UART1串口，需使用跳线进行选择，在使用程序驱动PN532模块时，需要将跳线移到NFC一端，如下图所示：
+
+
+
+图 1 NFC跳线设置
+
+2）创建工程文件
+
+使用KEIL打开STM32工程基础模板，在其中添加NFC相关程序，工程目录结构如下：
+
+
+
+图 2 NFC工程目录
+
+BSP目录主要有:
+
+nfc_pn532.h    //NFC模块对外接口头文件   
+nfc_pn532.c    //NFC驱动实现源码
+usart.h        //调试串口UART2对外接口头文件
+usart.c        //调试串口UART2驱动实现源码
+USER目录主要有:
+
+main.c           //主程序入口
+stm32f4xx_it.c  //中断处理函数文件
+usart.h为STM32的UART2调试串口的接口头文件，内容如下：
+
+【代码7-1-1】BSP/usart.h
+
+#ifndef __USART_H__
+#define __USART_H__
+#include "stm32f4xx.h"
+
+void UART2_Init(u32 bound);
+
+#endif
+usart.c为STM32的UART2调试串口驱动实现源码，内容如下：
+
+【代码7-1-2】BSP/usart.c
+
+#include <stdio.h>
+#include "usart.h"     
+
+void UART2_Init(u32 bound)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+    
+    //使能GPIOA和USART1时钟
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE);  //GPIOA在AHB1高速总线上
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2,ENABLE); //USART2在APB1硬件总线上
+
+    //USART2 对应引脚复用映射
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF_USART2); 
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF_USART2); 
+    
+    //USART2 IO配置
+    GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_2 | GPIO_Pin_3; 
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;     //复用
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;//速度50MHz
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;   //推挽复用输出
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_UP;    
+    GPIO_Init(GPIOA,&GPIO_InitStructure);  
+    
+    //USART2 端口配置
+    USART_InitStructure.USART_BaudRate = bound;  //波特率设置
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;  //字长8bit
+    USART_InitStructure.USART_StopBits   = USART_StopBits_1;       //1停止位
+    USART_InitStructure.USART_Parity     = USART_Parity_No;          //无校验
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;//无硬件数据流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;    //收发
+    USART_Init(USART2, &USART_InitStructure); 
+    
+    NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;         //USART2中断向量
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 3; //抢占优先级3
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;          //子优先级3
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;              //IRQ通道使能
+    NVIC_Init( &NVIC_InitStructure );    
+    
+    USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//开中断
+    USART_Cmd(USART2, ENABLE);  //使能串口2 
+}
+
+
+/*
+发送一个字符 
+*/
+void UART_SendByte( USART_TypeDef * pUSARTx, uint8_t ch)
+{
+    //发送一个字节数据到USART
+    USART_SendData(pUSARTx, ch);
+        
+    //等待发送数据寄存器为空
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+/*
+发送字符串
+*/
+void UART_SendString( USART_TypeDef * pUSARTx, char *str)
+{
+    unsigned int k=0;
+    do {
+      UART_SendByte( pUSARTx, *(str + k) );
+      k++;
+    } while(*(str + k)!='\0');
+  
+  //等待发送完成
+  while(USART_GetFlagStatus(pUSARTx,USART_FLAG_TC)==RESET){}
+}
+
+/*****************  发送一个16位数 **********************/
+void UART_SendHalfWord( USART_TypeDef * pUSARTx, uint16_t ch)
+{
+    uint8_t temp_h, temp_l;    
+    temp_h = (ch&0XFF00)>>8;      /* 取出高八位 */
+    temp_l = ch&0XFF;      /* 取出低八位 */
+    
+    USART_SendData(pUSARTx,temp_h);         /* 发送高八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+    
+    USART_SendData(pUSARTx,temp_l);         /* 发送低八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+//重定向c库函数printf到串口，重定向后可使用printf函数
+int fputc(int ch, FILE *f)
+{
+    // 发送一个字节数据到串口
+    USART_SendData(USART2, (uint8_t) ch);
+        
+    // 等待发送完毕
+    while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);        
+
+    return (ch);
+}
+
+//重定向c库函数scanf到串口，重写向后可使用scanf、getchar等函数
+int fgetc(FILE *f){
+    // 等待串口输入数据
+    while (USART_GetFlagStatus(USART2, USART_FLAG_RXNE) == RESET);
+    return (int)USART_ReceiveData(USART2);
+}
+
+
+/*
+串口2中断处理函数  
+*/
+void USART2_IRQHandler( void ){
+    u8 sbuf = 0;
+  
+    //接收中断服务函数
+    if(USART_GetFlagStatus(USART2, USART_FLAG_RXNE)) {
+        sbuf = USART_ReceiveData(USART2);//收到一个字节
+        USART_SendData(USART2, sbuf);    //回显转发回去
+    }
+}
+nfc_pn532.h为NFC模块的对外接口头文件，主要内容为：
+
+【代码7-1-3】BSP/nfc_pn532.h
+
+#ifndef __NFC_PN532_H__
+#define __NFC_PN532_H__
+
+#include "stm32f4xx.h"
+
+void NFC_Init( uint32_t baud );
+int8_t NFC_WakeUp(void);
+int8_t NFC_Read( uint8_t block , uint8_t *buf);
+int8_t NFC_Write(uint8_t block , uint8_t *buf);
+
+#endif /* __NFC_PN532_H__ */
+nfc_pn532.c为NFC模块的驱动实现文件，驱动具体内容在后续步骤中将逐一说明，当前先定义所需的全局量，以备使用，主要为头文件引用、缓冲区、宏定义等内容，具体用途后续步骤中说明，主要内容为：
+
+【代码7-1-4】BSP/nfc_pn532.c
+
+#include <stdio.h>
+#include <string.h>
+#include "delay.h"
+#include "nfc_pn532.h"
+
+#define PN532_USART     USART1
+
+#define LEN_ACK    6  //ACK帧的长度
+#define INDEX_LEN  3  //LEN字节在命令中的偏移是
+#define INDEX_TFI  5  //TFI字节在命令中的偏移是
+
+
+#define CMD_SAMConfiguration    0x14
+#define CMD_InListPassiveTarget 0x4A
+#define CMD_InDataExchange      0x40
+
+#define PN532_DELAY_MS(x) delay_ms(x)
+
+//NFC读写等操作的尝试次数，0为永久尝试阻塞等待，>0为尝试次数，每次尝试失败等待100MS
+//NFC所有操作都需扫描卡片，无卡时需等待放卡，此值用于设置尝试扫卡次数
+uint32_t MAX_TRY = 0;
+
+uint8_t UID[4]; //存储 UID
+uint8_t UID_backup[4];//UID备份，用于处理不连续写同一卡
+
+uint8_t KEY_A[6]={0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+uint8_t KEY_B[6]={0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+uint8_t PN532_RxBuf[500];
+uint16_t PN532_RxBufLen = 0;
+
+int8_t PN532_WakeUp( void );//唤醒模块
+int8_t PN532_InListPassiveTarget( void );   //配置
+int8_t PN532_PsdVerifyKeyA( uint8_t *pKeyA );         //密码授权，验证KeyA
+int8_t PN532_Read( uint8_t block, uint8_t* buf); //读指定块的16字节
+int8_t PN532_Write(uint8_t block, uint8_t* buf); //指定块写16字节
+int8_t PN532_SAMConfiguration( uint8_t mode );
+NFC串口通讯实现
+1）模块初始化
+
+PN532通过UART1进行命令交互，需先实现基础初始化函数NFC_Init()，主要实现GPIO参数初始化、UART1参数初始化、UART1中断初始化几部分：
+
+GPIO参数初始化主要使能GPIO时钟，串口时钟，配置RX与TX引脚及复用功能设置，
+
+UART1参数初始化，配置为指定波特率，8个数据位，1个停止位，无校验位
+
+UART1中断初始化，当前只打开接收中断，主要代码如下：
+
+【代码7-2-1】BSP/nfc_pn532.c
+
+void NFC_Init(uint32_t baud ){
+    GPIO_InitTypeDef GPIO_InitStructure; 
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;  
+
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,  ENABLE);    //打开串口GPIO的时钟
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);   //使能USART时钟
+   
+    //USART GPIO初始化
+    //配置UART引脚为复用功能
+    GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_9|GPIO_Pin_10;  
+    GPIO_InitStructure.GPIO_Mode  = GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_UP;  
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource9,  GPIO_AF_USART1);  //连接PXx到USARTx_Rx
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource10, GPIO_AF_USART1); //连接 PXx到USARTx_Tx
+
+
+    //配置串口USART模式
+    USART_InitStructure.USART_BaudRate   = baud;
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;  //数据位8
+    USART_InitStructure.USART_StopBits   = USART_StopBits_1;  //停止位：1个停止位
+    USART_InitStructure.USART_Parity = USART_Parity_No;  //校验位选择：不使用校验
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;  //不使用硬件流
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;  //同时使能接收和发送
+    USART_Init(PN532_USART, &USART_InitStructure);   //完成USART初始化配置
+
+    USART_ITConfig(PN532_USART, USART_IT_RXNE, ENABLE);    //使能串口接收中断
+    USART_Cmd(PN532_USART, ENABLE);  // 使能串口
+    
+    //配置NVIC中断
+    NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;          //配置USART为中断源
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;  //抢断优先级
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;           //优先级 
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;      //使能中断
+    NVIC_Init(&NVIC_InitStructure);     //初始化配置NVIC
+}
+2）串口数据收发
+
+命令发送只需调用USART_SendData()函数，将数据字节逐一发送即可。
+
+PN532的命令回复使用UART1接收中断实现，需先定义接收缓冲区，在接收中断中逐字节接收数据。PN532每个命令都会先回复ACK帧,再回复结果帧,然后回复执行结果，在发送完命令后需延时等待中断接收完数据后再做处理：
+
+【代码7-2-2】BSP/nfc_pn532.c
+
+
+//发送数据data
+void PN532_SendData(uint8_t *data, uint8_t length){
+    uint8_t i = 0;
+    for(i=0; i<length; i++){
+        USART_SendData(PN532_USART, data[i]);
+        while(USART_GetFlagStatus(PN532_USART, USART_FLAG_TXE) == RESET){} //等得发送完成 
+    }
+}
+
+/*
+UART1中断处理函数
+*/
+void USART1_IRQHandler(void)
+{
+    //接收中断
+    if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET){    
+        PN532_RxBuf[PN532_RxBufLen++] = USART_ReceiveData( USART1 ); 
+        USART_ClearITPendingBit(USART1, USART_IT_RXNE);
+    }
+}
+3）串口数据校验
+
+串口数据接收到后，需验证数据是否正确，主要验证数据长度是否合理，确认LEN与LCS（校验和）字段匹配，以及校验整个数据帧的校验码（如CRC）是否正确。
+
+【代码7-2-3】BSP/nfc_pn532.c
+
+/*
+检验返回的数据是否合规
+*/
+int8_t PN532_CheckRxBuf(void){
+    uint8_t i   = 0;
+    uint8_t len = 0;
+    uint8_t temp = 0;
+        
+    if(PN532_RxBufLen < (LEN_ACK + INDEX_TFI + 4)){ return -1;};//数据长度不够
+    
+    len = PN532_RxBuf[LEN_ACK + INDEX_LEN];//帧长
+    temp = 0x100 - len;//计算LCS值
+    if(temp != PN532_RxBuf[LEN_ACK + INDEX_LEN + 1]){return -1;}  //LCS不匹配
+    
+    //计算校验码
+    temp = 0;
+    for(i=0; i<len; i++){
+        temp += PN532_RxBuf[LEN_ACK + INDEX_TFI + i];
+    }
+    temp = 0x100 - temp;
+    if(temp != PN532_RxBuf[LEN_ACK + INDEX_TFI + len] ){ return -1;}//校检码不匹配
+
+    return 0;
+}
+
+/*
+计算给定数据的校验和
+*/
+uint8_t PN532_CheckSum(uint8_t *data){
+    uint8_t i = 0;
+    uint8_t temp = 0;
+     
+    for(i=0; i<data[INDEX_LEN]; i++){//计算校验和
+        temp += data[INDEX_TFI + i];
+    }
+     
+    return 0x100- temp;
+}
+NFC基础命令实现
+1）唤醒命令WakeUp
+
+PN532唤醒只需先发送唤醒帧头，再使用SAM配置命令测试是否已配置即可，若唤醒失败，可多次尝试。
+
+【代码7-3-1】BSP/nfc_pn532.c
+
+/*
+功能：唤醒NFC模块
+可通过MAX_TRY设置尝试次数
+唤醒数据:55 55 00 00 00 00 00 00 00 00 00 00 00 00 
+返回值:
+返回-1唤醒失败，返回0唤醒成功
+*/
+int8_t NFC_WakeUp(void){
+    uint32_t i = 0;
+    uint8_t data[14] = {0};
+    data[0]  = 0x55;
+    data[1]  = 0x55;
+    
+    while(1){
+        PN532_SendData(data, sizeof(data)); //发送唤醒数据         
+        if(PN532_SAMConfiguration(1) == 0){//使用SAM配置为普通模式
+            printf("NFC WakeUP OK\r\n");
+            break;
+        }
+
+        //稍作延时，再次尝试
+        PN532_DELAY_MS(100);
+        i++;
+        if(MAX_TRY != 0 && i>MAX_TRY){
+            printf("NFC WakeUP TimeOut\r\n");
+            return -1;
+        }
+    }
+
+    return 0;
+}
+2）SAM配置命令
+
+SAM配置命令主要在PN532唤醒时进行模式配置，当前只配置为模式1，即普通读写器模式。SAM配置只需根据PN532组织命令格式，命令码CMD_SAMConfiguration=0x14，返回状态码为0表示配置成功。SAM配置命令的格式如下：
+
+
+图 3 SAM配置命令
+
+【代码7-3-2】BSP/nfc_pn532.c
+
+/*
+SAM配置
+参数:
+mode:
+1: 普通模式, 
+2: 虚拟卡模式
+3: 有线卡模式
+4: 双卡模式
+*/
+int8_t PN532_SAMConfiguration( uint8_t mode ){
+    uint8_t data[10] = {0};
+    int8_t ret = 0;
+    
+    data[0] = 0x00;  //前导码 Preamble
+    data[1] = 0x00;  //开始码
+    data[2] = 0xFF;  
+    data[3] = 0x03; //包长度LEN
+    data[4] = 0x100 - data[3]; //包长度校验LCS
+    data[5] = 0xD4; //命令标识码 TFI
+    data[6] = CMD_SAMConfiguration; //命令码
+    data[7] = mode;  //配置为普通模式
+    data[8] = PN532_CheckSum(data); //校验码
+    data[9] = 0x00;  //后序字节 Postamble
+
+    PN532_SendData(data, sizeof(data));
+    PN532_DELAY_MS( 200 );
+
+    if(PN532_CheckRxBuf()<0){ ret = -1; goto _END; }//返回数据格式不对
+    ret = 0;
+
+_END:
+    PN532_ClearRxBuf();
+    return ret;
+}
+3）寻卡命令
+
+寻卡也称扫描卡，主要用于扫描获取可读写的标签卡。根据PN532手册组织命令格式，命令码CMD_InListPassiveTarget=0x4A，此处一次只寻一张卡。返回卡数据大于0时表示找到卡，此时应保存卡的UID值，以备其他命令使用。
+
+
+图 4 寻卡命令格式
+
+【代码7-3-3】BSP/nfc_pn532.c
+
+/*
+寻卡，扫描卡Mifare1卡
+*/
+int8_t PN532_InListPassiveTarget( void ){
+    uint8_t data[11] = {0};
+    int8_t ret = 0;
+
+    data[0]  = 0x00; //前导码 Preamble
+    data[1]  = 0x00; //开始码 
+    data[2]  = 0xFF;
+    data[3]  = 0x04; //包长度LEN
+    data[4]  = 0x100 - data[3]; //包长度校验LCS
+    data[5]  = 0xD4; //命令标识码 TFI
+    data[6]  = CMD_InListPassiveTarget; //命令
+    data[7]  = 0x01;  //只选1张卡
+    data[8]  = 0x00;  //106K TypeA类型卡
+    data[9]  = PN532_CheckSum(data); //数据校验
+    data[10] = 0x00;  //后序码
+    
+    PN532_SendData(data, sizeof(data));
+    PN532_DELAY_MS(200); 
+
+    if(PN532_CheckRxBuf()<0){ ret = -1; goto _END; }//返回数据格式不对
+    
+    //卡数量，若Tg!=1则没检到卡
+    if(PN532_RxBuf[LEN_ACK + INDEX_TFI + 2] != 1){ret = 0; goto _END; }
+
+    //检到卡，保存扫描到的卡号UID
+    UID[0] = PN532_RxBuf[LEN_ACK + INDEX_TFI + 8];
+    UID[1] = PN532_RxBuf[LEN_ACK + INDEX_TFI + 9];
+    UID[2] = PN532_RxBuf[LEN_ACK + INDEX_TFI + 10];
+    UID[3] = PN532_RxBuf[LEN_ACK + INDEX_TFI + 11];
+    ret = 1;
+    
+_END:
+    PN532_ClearRxBuf();
+    return ret;
+}
+4）KeyA验证命令
+
+NFC操作卡数据时都需验证密码，密码正确才可读写数据，当前只验证KeyA，使用CMD_InDataExchange=0x40命令。参数数据中指定CMD=0x60时验证KeyA，并带有密码数据与UID，当前使用初始默认密码FF，返回状态位为0表示验证通过。
+
+【代码7-3-4】BSP/nfc_pn532.c
+
+/*
+密码授权，验证KeyA
+*/
+int8_t PN532_PsdVerifyKeyA(uint8_t *pKeyA){
+    uint8_t data[22] = {0};
+    int8_t ret = 0;
+    
+    data[0] = 0x00;  //前导码
+    data[1] = 0x00;  //开始码
+    data[2] = 0xFF;  
+    data[3] = 0x0F;  //包长度LEN
+    data[4] = 0x100 - data[3]; //包长度校验
+    data[5] = 0xD4; //命令标识码
+    data[6] = CMD_InDataExchange; //命令码
+    data[7] = 0x01;  //1号卡
+    data[8] = 0x60;  //验证KEYA 
+    data[9] = 0x03;  //
+    
+    data[10] = pKeyA[0]; //KEY A 密码 FF FF FF FF FF FF
+    data[11] = pKeyA[1];
+    data[12] = pKeyA[2];
+    data[13] = pKeyA[3];
+    data[14] = pKeyA[4];
+    data[15] = pKeyA[5];
+    
+    data[16] = UID[0]; //指定卡UID
+    data[17] = UID[1];
+    data[18] = UID[2];
+    data[19] = UID[3];
+    data[20] = PN532_CheckSum(data);   //校验码
+    data[21] = 0x00;  //后序码
+    
+    PN532_SendData(data, sizeof(data));
+    PN532_DELAY_MS(200);
+
+    if(PN532_CheckRxBuf()<0){ret = -1;goto _END;}//返回数据不正确    
+    if(PN532_RxBuf[LEN_ACK + INDEX_TFI + 2] != 0){ ret=  -1; goto _END;}//status状态位不正确
+
+    ret = 0;
+_END:
+    PN532_ClearRxBuf();
+    return ret;
+}
+5）写入数据命令
+
+写入数据使用CMD_InDataExchange=0x40命令，参数中CMD=0xA0，并指定块地址，后续为要写入的数据,返回状态位为0表示写入成功。
+
+【代码7-3-5】BSP/nfc_pn532.c
+
+/*
+写入指定块的数据
+*/
+int8_t PN532_Write(uint8_t block, uint8_t* buf){
+    uint8_t data[28] = {0};
+    int8_t ret = 0;
+
+    if(buf == NULL){ return -1; }
+    
+    data[0] = 0x00; //前导码
+    data[1] = 0x00; //开始码
+    data[2] = 0xFF;
+    data[3] = 0x15; //包长度LEN
+    data[4] = 0x100 - data[3]; //包长度校验
+    data[5] = 0xD4; //帧方向码
+    data[6] = CMD_InDataExchange; //命令码
+    data[7] = 0x01; //1号卡
+    data[8] = 0xA0; //写16字节
+    data[9] = block; //块地址     
+    memcpy(data+10, buf, 16);
+    data[26] = PN532_CheckSum(data); //数据校验码
+    data[27] = 0x00;
+
+    PN532_SendData(data, sizeof(data));
+    PN532_DELAY_MS(200);
+
+    if(PN532_CheckRxBuf()<0){ ret = -1; goto _END; }//返回数据不正确
+    if(PN532_RxBuf[LEN_ACK + INDEX_TFI + 2] != 0){ ret = -1; goto _END;}//status状态位不正确
+    ret = 0;
+
+_END:
+    PN532_ClearRxBuf();
+    return ret;
+} 
+6）读取数据命令
+
+读取数据使用CMD_InDataExchange=0x40命令，参数中CMD=0x30，并指定块地址，返回状态位为0表示成功，保存读出的数据。
+
+【代码7-3-6】BSP/nfc_pn532.c
+
+/*
+读指定块的16字节数据
+*/
+int8_t PN532_Read(uint8_t block , uint8_t *buf) {
+    uint8_t data[12] = {0};
+    int8_t ret = 0;
+
+    if(buf == NULL){ return -1; }
+
+    data[0] = 0x00;  //前导码
+    data[1] = 0x00;  //开始码
+    data[2] = 0xFF;    
+    data[3] = 0x05; //包长度
+    data[4] = 0x100 - data[3]; //包长度校验  
+    data[5] = 0xD4; //命令标识码
+    data[6] = 0x40; //命令码    
+    data[7] = 0x01; //1号卡
+    data[8] = 0x30; //读16字节命令
+    data[9] = block; //指定地址
+    data[10] = PN532_CheckSum(data); //校验码
+    data[11] = 0x00; //后序码
+
+    PN532_SendData(data, sizeof(data));
+    PN532_DELAY_MS(200);
+
+    if(PN532_CheckRxBuf()<0){ret = -1; goto _END;}//返回数据不正确
+    if(PN532_RxBuf[LEN_ACK + INDEX_TFI + 2] != 0){ ret = -1; goto _END;}//status状态位不正确
+
+    memcpy(buf, PN532_RxBuf + LEN_ACK + INDEX_TFI + 3, 16); //读数据
+    ret = 0;
+
+_END:
+    PN532_ClearRxBuf();
+    return ret;
+}
+NFC读写流程实现
+1）写卡流程
+
+PN532写卡有固定流程为：寻卡、验证、写入，依次调用相关命令即可实现。PN532写卡需有卡配合，寻不到卡或写入错误时应循环尝试，超时未成功则退出。
+
+【代码7-4-1】BSP/nfc_pn532.c
+
+/*
+写入指定数据到指定块
+返回-1写入失败，返回0写入成功
+*/
+int8_t NFC_Write(uint8_t block, uint8_t* buf){
+    uint32_t i = 0;
+
+    while(1){
+        PN532_DELAY_MS(100);
+        i++;
+        if(MAX_TRY!=0 && i>MAX_TRY){//判断是否超过尝试次数
+            printf("NFC Write TimeOut\r\n");
+            return -1;
+        }
+        
+        if(PN532_InListPassiveTarget()<=0){//扫描卡
+            continue;
+        }
+        if(PN532_PsdVerifyKeyA(KEY_A) < 0){//验证密码A
+            continue;
+        }
+        if(PN532_Write(block , buf)<0){//写数据
+            continue;
+        }
+        break; //成功则跳出
+    }
+    
+    return 0;
+}
+2）读卡流程
+
+PN532读卡固定流程为：寻卡、验证、读取，依次调用相关命令即可实现。PN532读卡需有卡配合，寻不到卡或读取错误时应循环尝试，超时未成功则退出。
+
+【代码7-4-2】BSP/nfc_pn532.c
+
+/*
+读取指定数据
+可通过MAX_TRY设置尝试次数
+*/
+int8_t NFC_Read(uint8_t block, uint8_t* buf){
+    uint32_t i = 0;
+
+    while(1){
+        PN532_DELAY_MS(100);
+        i++;
+        if(MAX_TRY != 0 && i>MAX_TRY){//是否超过尝试次数
+            printf("NFC Read TimeOut\r\n");
+            return -1;
+        }
+        
+        if(PN532_InListPassiveTarget() <= 0){//扫描卡
+            continue;
+        }
+        if(PN532_PsdVerifyKeyA(KEY_A) < 0){//验证密码A
+            continue;
+        }
+        if(PN532_Read(block , buf)<0){//读取块数据
+            continue;
+        }
+        
+        break; //成功则跳出
+    }
+    
+    return 0;
+}
+NFC测试示例实现
+1）测试示例创建
+
+PN532驱动程序完成后，需要在文件USER/main.c编写主程序代码实现功能。
+
+main.c为主程序测试示例实现源码，全局量定义声明如下，主要为引用头文件，数据缓存区等。
+
+【代码7-5-1】USER/main.c
+
+#include <stdio.h>
+#include "stm32f4xx.h"
+#include "nfc_pn532.h"
+#include "usart.h"
+#include "delay.h"
+
+#define TEST_SIZE 16
+uint8_t BufRead[TEST_SIZE]  ={0};
+uint8_t BufWrite[TEST_SIZE] ={0};
+2）测试数据生成与检测
+
+制造16字节递增测试数据用于写入，读取后与写入数据作比较，完全一致则表示读写都正确。数据制造与比较的函数如下：
+
+【代码7-5-2】USER/main.c
+
+void make_test_data(){
+    uint32_t i = 0;
+    
+    //制造测试数据
+    for(i=0; i<TEST_SIZE; i++ ){
+        BufWrite[i] = i;
+        printf("0x%02X ", BufWrite[i]);
+        if(i%16 == 15){//分行
+            printf("\r\n");
+        }
+    }
+}
+
+void check_test_data(){
+    uint32_t i = 0;
+    
+    //读取数据并比较
+    for(i=0; i<TEST_SIZE; i++ ){
+        if(BufRead[i] != BufWrite[i]){
+            printf("0x%02X ", BufRead[i]);
+            printf("not correct\r\n");
+            break;
+        }
+        printf("0x%02X ", BufRead[i]);
+        if(i%16 == 15){//分行
+           printf("\r\n");
+        }
+    }
+    
+    printf("\r\n");
+    if(i >= TEST_SIZE){
+        printf("TEST OK\r\n");
+    }
+}
+3）测试示例主程序
+
+测试思路为调用写卡函数将数据写入2号块内，调用读卡函数将2号块数据读取出来，再比较内容，读写时需要S50卡配合，函数实现如下：
+
+【代码7-5-3】USER/main.c
+
+int main(void){  
+    UART2_Init(115200);
+    NFC_Init(115200);
+    printf("NFC Init OK\r\n");
+
+    NFC_WakeUp();
+    make_test_data();
+    while(1){
+        if(NFC_Write(2, BufWrite)<0){//写入2号块
+            continue;
+        }
+        printf("Write OK\r\n");
+
+        delay_ms(5000);
+
+        if(NFC_Read(2, BufRead)<0){//读出2号块
+            continue;
+        }
+        printf("Read OK\r\n");
+
+        check_test_data();//检查读写数据是否一致
+        delay_ms(30000);
+    }
+}
+四、实验结果
+将S50卡放在NFC模块上，NFC示例程序编译后下载运行，串口输出如下信息，先写入16字节，后读取出16字节，并且比较前后数据是否一致，一致则检测通过。
+
+

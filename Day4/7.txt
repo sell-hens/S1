@@ -1,0 +1,411 @@
+实验介绍
+1. 实验目的
+
+• 理解CAN总线特点与应用场景
+
+• 掌握CAN总线控制协议
+
+• 掌握CAN控制器功能与配置方法
+
+• 掌握CAN总线STM32编程方法
+
+• 掌握CAN总线通讯编程方法
+
+2. 实验内容
+
+CAN总线是工业环境应用最广泛的总线之一，具有良好的性能与高可靠性，AU100开发板上带有CAN总线节点，本实验使用CAN总线的LoopBack自发自收功能，实现与AU100的CAN节点的数据收发功能实验，通过本实验可深入掌握CAN通讯协议的收发原理，掌握CAN总的STM32编程方法，实验内容主要如下：
+
+1） CAN工程创建
+
+2） CAN收发示例实现
+
+3. 实验知识点
+
+• CAN总线通讯协议
+
+• CAN官方库用法
+
+4. 实验时长
+
+共2学时，学时分配如下：
+
+• CAN工程创建（1学时）
+
+• CAN收发示例实现（1学时）
+
+5. 实验环境
+
+• AU100开发板-STM32F407
+
+• Keil MDK 5.36
+
+• Keil.STM32F4xx_DFP.2.15.0
+
+• STM32F4xx_StdPeriph_Driver v1.81
+
+• Windows 10
+
+二、实验分析
+1） CAN工程创建
+
+• 创建程序文件
+
+2） CAN收发示例实现
+
+• CAN初始化
+
+• CAN筛选器配置
+
+• CAN接收数据实现
+
+• CAN发送数据实现
+
+• 主程序框架实现
+
+三、实验步骤
+CAN工程创建
+1） 创建工程文件
+
+需为CAN总线示例创建相应目录和文件，在Keil中创建相应驱动文件，以STM32工程模板为基础，添加相关文件，目录如图：
+
+
+
+图 6 CAN总线工程目录
+
+BSP目录主要有:
+
+can.h    //CAN总线对外接口头文件   
+can.c    //CAN总线驱动实现源码
+usart.h        //调试串口UART2对外接口头文件
+usart.c        //调试串口UART2驱动实现源码
+usart.h为STM32的UART2调试串口的接口头文件，内容如下：
+
+【代码7-1-1】BSP/usart.h
+
+#ifndef __USART_H__
+#define __USART_H__
+#include "stm32f4xx.h"
+
+void UART2_Init(u32 bound);
+
+#endif
+usart.c为STM32的UART2调试串口驱动实现源码，内容如下：
+
+【代码7-1-2】BSP/usart.c
+
+#include <stdio.h>
+#include "usart.h"     
+
+void UART2_Init(u32 bound)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+    
+    //使能GPIOA和USART1时钟
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE);  //GPIOA在AHB1高速总线上
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2,ENABLE); //USART2在APB1硬件总线上
+
+    //USART2 对应引脚复用映射
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF_USART2); 
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF_USART2); 
+    
+    //USART2 IO配置
+    GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_2 | GPIO_Pin_3; 
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;     //复用
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;//速度50MHz
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;   //推挽复用输出
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_UP;    
+    GPIO_Init(GPIOA,&GPIO_InitStructure);  
+    
+    //USART2 端口配置
+    USART_InitStructure.USART_BaudRate = bound;  //波特率设置
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;  //字长8bit
+    USART_InitStructure.USART_StopBits   = USART_StopBits_1;       //1停止位
+    USART_InitStructure.USART_Parity     = USART_Parity_No;          //无校验
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;//无硬件数据流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;    //收发
+    USART_Init(USART2, &USART_InitStructure); 
+    
+    NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;         //USART2中断向量
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 3; //抢占优先级3
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;          //子优先级3
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;              //IRQ通道使能
+    NVIC_Init( &NVIC_InitStructure );    
+    
+    USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//开中断
+    USART_Cmd(USART2, ENABLE);  //使能串口2 
+}
+
+
+/*
+发送一个字符 
+*/
+void UART_SendByte( USART_TypeDef * pUSARTx, uint8_t ch)
+{
+    //发送一个字节数据到USART
+    USART_SendData(pUSARTx, ch);
+        
+    //等待发送数据寄存器为空
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+/*
+发送字符串
+*/
+void UART_SendString( USART_TypeDef * pUSARTx, char *str)
+{
+    unsigned int k=0;
+    do {
+      UART_SendByte( pUSARTx, *(str + k) );
+      k++;
+    } while(*(str + k)!='\0');
+  
+  //等待发送完成
+  while(USART_GetFlagStatus(pUSARTx,USART_FLAG_TC)==RESET){}
+}
+
+/*****************  发送一个16位数 **********************/
+void UART_SendHalfWord( USART_TypeDef * pUSARTx, uint16_t ch)
+{
+    uint8_t temp_h, temp_l;    
+    temp_h = (ch&0XFF00)>>8;      /* 取出高八位 */
+    temp_l = ch&0XFF;      /* 取出低八位 */
+    
+    USART_SendData(pUSARTx,temp_h);         /* 发送高八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+    
+    USART_SendData(pUSARTx,temp_l);         /* 发送低八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+//重定向c库函数printf到串口，重定向后可使用printf函数
+int fputc(int ch, FILE *f)
+{
+    // 发送一个字节数据到串口
+    USART_SendData(USART2, (uint8_t) ch);
+        
+    // 等待发送完毕
+    while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);        
+
+    return (ch);
+}
+
+//重定向c库函数scanf到串口，重写向后可使用scanf、getchar等函数
+int fgetc(FILE *f){
+    // 等待串口输入数据
+    while (USART_GetFlagStatus(USART2, USART_FLAG_RXNE) == RESET);
+    return (int)USART_ReceiveData(USART2);
+}
+
+
+/*
+串口2中断处理函数  
+*/
+void USART2_IRQHandler( void ){
+    u8 sbuf = 0;
+  
+    //接收中断服务函数
+    if(USART_GetFlagStatus(USART2, USART_FLAG_RXNE)) {
+        sbuf = USART_ReceiveData(USART2);//收到一个字节
+        USART_SendData(USART2, sbuf);    //回显转发回去
+    }
+}
+can.h为CAN总线对外接口文件，主要为函数声明:
+
+【代码7-1-3】BSP/can.h
+
+#ifndef __CAN_H__
+#define __CAN_H__
+#include "stm32f4xx.h"
+
+void CAN1_Init(void);
+void CAN1_SendMsg(uint32_t uID, uint8_t *pData, uint32_t uLen);
+
+#endif
+can.c为CAN总线驱动实现文件，需先定义头文件引用等，具体驱动实现将在后续将具体说明，当前内容如下:
+
+【代码7-1-4】BSP/can.c
+
+#include <stdio.h>
+#include <string.h>
+#include "stm32f4xx.h"
+
+void CAN1_FilterConfig(void);
+CAN收发示例实现
+1） CAN初始化
+
+CAN总线使用前需进行初始化，主要有GPIO引脚初始化， CAN控制器初化，CAN中断初化化，CAN筛选器初始化等内容。CAN总线使用PA11与PA12两根GPIO初始化， 复用为CAN1，需开启相应时钟，配置GPIO参数。CAN控制器需使用CAN_Init函数进行初始化，并需开始CAN接收中断，调用筛选器初始化函数，源码实现如下：
+
+【代码7-2-1】BSP/can.c
+
+void CAN1_Init(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    CAN_InitTypeDef  CAN_InitStruct={0};
+    NVIC_InitTypeDef  NVIC_InitStructure;
+
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);//使能GPIO时钟
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_CAN1, ENABLE);//使能串口时钟
+   
+    //PA11、PA12复用为CAN1
+    GPIO_InitStruct.GPIO_Pin  = GPIO_Pin_11 | GPIO_Pin_12;
+    GPIO_InitStruct.GPIO_Mode = GPIO_Mode_AF;
+    GPIO_InitStruct.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStruct.GPIO_PuPd = GPIO_PuPd_NOPULL;
+    GPIO_InitStruct.GPIO_Speed = GPIO_Speed_100MHz;
+    GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    //引脚复用映射配置
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource11, GPIO_AF_CAN1);
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource12, GPIO_AF_CAN1);
+
+    CAN_InitStruct.CAN_Prescaler = 6;       //分频系数(Fdiv)为brp+1    
+    CAN_InitStruct.CAN_Mode = CAN_Mode_LoopBack;     //自发自收模式 
+      CAN_InitStruct.CAN_SJW  = CAN_SJW_1tq;    //重新同步跳跃宽度(Tsjw)为tsjw+1个时间单位 CAN_SJW_1tq~CAN_SJW_4tq
+      CAN_InitStruct.CAN_BS1  = CAN_BS1_6tq;  //Tbs1范围CAN_BS1_1tq ~CAN_BS1_16tq
+      CAN_InitStruct.CAN_BS2  = CAN_BS2_7tq;  //Tbs2范围CAN_BS2_1tq ~    CAN_BS2_8tq
+    CAN_InitStruct.CAN_TTCM = DISABLE;    //非时间触发通信模式   
+      CAN_InitStruct.CAN_ABOM = DISABLE;    //软件自动离线管理      
+      CAN_InitStruct.CAN_AWUM = DISABLE;  //睡眠模式通过软件唤醒(清除CAN->MCR的SLEEP位)
+      CAN_InitStruct.CAN_NART = ENABLE;    //禁止报文自动传送 
+      CAN_InitStruct.CAN_RFLM = DISABLE;    //报文不锁定,新的覆盖旧的  
+      CAN_InitStruct.CAN_TXFP = DISABLE;    //优先级由报文标识符决定 
+    CAN_Init(CAN1, &CAN_InitStruct);     // 初始化CAN1
+
+    //中断配置
+       CAN_ITConfig(CAN1, CAN_IT_FMP0, ENABLE);//FIFO0消息挂号中断允许.
+      NVIC_InitStructure.NVIC_IRQChannel = CAN1_RX0_IRQn;
+      NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;     // 主优先级为1
+      NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;            // 次优先级为0
+      NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+      NVIC_Init(&NVIC_InitStructure);
+
+    CAN1_FilterConfig();
+}
+说明：此处CAN_Prescaler = 6
+
+因本实验为自发自收，实际不必考虑波特率，此处使用常用的波特率设500K
+
+BS1相位缓冲段1设为CAN_BS1_6TQ = 6
+
+BS2相位缓冲段2设为CAN_BS2_7TQ = 7
+
+根据之前波特率相关公式：
+
+500K = 42M/(Prescaler * (1 + 6 + 7))
+
+可求出：Prescaler = 42M / 500K * 14 = 6
+
+2） CAN筛选器配置
+
+CAN总线接收需配置筛选器，过滤掉不需要的帧，当前使用32位掩码模式，掩码设为0，即接收所有帧数据，因当前只有两个节点没必要筛选．
+
+【代码7-2-2】BSP/can.c
+
+//接收筛选器配置
+void CAN1_FilterConfig(void){
+    CAN_FilterInitTypeDef  CAN_Filter;
+    
+    //配置过滤器
+     CAN_Filter.CAN_FilterNumber     = 0;      //过滤器0
+      CAN_Filter.CAN_FilterMode       = CAN_FilterMode_IdMask; 
+      CAN_Filter.CAN_FilterScale      = CAN_FilterScale_32bit; //32位 
+      CAN_Filter.CAN_FilterIdHigh     = 0x0000;//32位ID
+      CAN_Filter.CAN_FilterIdLow      = 0x0000;
+      CAN_Filter.CAN_FilterMaskIdHigh = 0x0000;//32位MASK
+      CAN_Filter.CAN_FilterMaskIdLow  = 0x0000;
+       CAN_Filter.CAN_FilterFIFOAssignment = CAN_Filter_FIFO0;//过滤器0关联到FIFO0
+      CAN_Filter.CAN_FilterActivation     = ENABLE; //激活过滤器0
+      CAN_FilterInit(&CAN_Filter);//滤波器初始化
+}
+3） CAN接收数据实现
+
+CAN总线在中断函数中使用CAN_Receive()读取接收到的数据，并将接收到数据通过调试串口依次显示：
+
+【代码7-2-3】BSP/can.c
+
+//中断服务函数                
+void CAN1_RX0_IRQHandler(void){
+    int i = 0;
+    uint32_t uCanID = 0;
+      CanRxMsg RxMessage;
+    
+    CAN_Receive(CAN1, 0, &RxMessage);//接收数据
+
+    uCanID = (RxMessage.IDE == CAN_Id_Standard) ? RxMessage.StdId : RxMessage.ExtId;
+    printf("\nRecv CANID:0x%08X Data:[", uCanID);
+    for(i=0; i<8; i++){
+        printf("%02X ", RxMessage.Data[i]);
+    }
+    printf("]\r\n");
+}
+4） CAN发送数据实现
+
+CAN总线发送数据，需配置数据头，RTR、IDE、ExtId等字段的值，然后调用CAN_Transmit()发送指定数据帧．发送成功后，将发送的数据通过串口显示，以便观察调试，此处CAN ID指定为0x1234
+
+【代码7-2-4】BSP/can.c
+
+//发送消息
+void CAN1_SendMsg(uint32_t uID, uint8_t *pData, uint32_t uLen){
+    uint32_t i =0;
+    uint8_t uMailBox = 0;    
+    CanTxMsg TxMessage;
+
+    TxMessage.StdId = uID;     // 标准标识符为0
+    TxMessage.ExtId = uID;     // 设置扩展标示符（29位）
+    TxMessage.IDE   = CAN_Id_Extended;    // 使用扩展标识符
+    TxMessage.RTR   = CAN_RTR_Data;          // 消息类型为数据帧，一帧8位
+    TxMessage.DLC   = uLen;             // 发送两帧信息
+    
+    printf("Send CAN Data:[0x%04X: ", uID);
+    for(i=0; i<uLen; i++){
+        printf("%02X ", pData[i]);
+        TxMessage.Data[i] = pData[i];        // 第一帧信息          
+    }
+    printf("]\r\n");
+    
+    uMailBox = CAN_Transmit(CAN1, &TxMessage);       
+    i = 0;
+    while((CAN_TransmitStatus(CAN1, uMailBox)==CAN_TxStatus_Failed)) {//等待发送结束 
+        i++;
+        if(i>=0XFFF){ break; }
+    }
+    if(i>=0xFFF){
+        printf("Send Failed!\r\n");
+        return;
+    }
+    
+    //printf("Send uccess! Tx_Mail:%u\r\n", uMailBox);
+}
+5） 主程序框架实现
+
+CAN总线测试主程序在文件main.c中实现，需首先初始化CAN节点，然的固定5秒发送一次数据，实现如下：
+
+【代码7-2-5】USER/main.c
+
+#include "stm32f4xx.h"
+#include "usart.h"
+#include "delay.h"
+#include "can.h"
+
+/**
+  * @brief  主函数
+  * @param  无
+  * @retval 无
+  */
+int main(void){
+    uint8_t  pTxData[8] = {0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11};
+    UART2_Init(115200);    
+    CAN1_Init();
+
+    while( 1 ) {
+        CAN1_SendMsg(0x1234, pTxData, 8);
+        delay_ms(5000);
+    }
+}
+四、实验结果
+程序编译下载运行，可见AU100开发板的串口显示每5秒发送一次数据，因设置为自发自收，每发一条同时收到相同数据:
+
+
+图7 CAN自发自收
+

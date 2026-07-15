@@ -1,0 +1,1192 @@
+、实验介绍
+1. 实验目的
+
+• 理解GPS技术组成与原理
+
+• 掌握GPS模块的配置使用方法
+
+• 掌握NMEA 0183数据格式
+
+• 掌握STM32串口编程方式
+
+• 掌握GPS数据解析编程实现
+
+2. 实验内容
+
+GPS是当前手机和物联网常用的功能模块，是实现定位与导航的基础。AU100 开发板带有LC86L型号的GPS模块，本实验通过此模块实现了GPS定位数据的获取和数据解析，通过本实验可深入掌握GPS数据标准格式，加强STM32的串口编程的应用，实验内容主要如下：
+
+1） GPS工程创建
+
+2） GPS数据解析
+
+3） GPS模块控制与测试
+
+3. 实验知识点
+
+• GPS定位原理与系统组成
+
+• GPS的NMEA0183数据格式定义
+
+• STM32串口编程方法
+
+• C语言字符串处理
+
+4. 实验时长
+
+共3学时，学时分配如下：
+
+• GPS工程创建（0.5学时）
+
+• GPS数据解析（2学时）
+
+• GPS模块控制与测试（0.5学时）
+
+5. 实验环境
+
+• AU100开发板-STM32F407
+
+• Keil MDK 5.36
+
+• Keil.STM32F4xx_DFP.2.15.0
+
+• STM32F4xx_StdPeriph_Driver v1.81
+
+• Windows 10
+
+二、实验分析
+1） GPS工程创建
+
+• 硬件连接
+
+• 创建驱动文件
+
+2） GPS数据解析
+
+• GGA报文解析
+
+• RMC报文解析
+
+• GLL报文解析
+
+• GSA报文解析
+
+• GSV报文解析
+
+• VTG报文解析
+
+• GPS报文区分
+
+3） GPS模块控制与测试
+
+• 模块初始化
+
+• 模块数据读取
+
+• 模块数据解析
+
+• 测试示例实现
+
+三、实验步骤
+GPS工程创建
+1） 硬件连接
+
+AU100的GPS模块与Zigbee模块共用UART4串口，若要编程控制GPS模块，则需将跳线连接至GPS端，如图:
+
+
+
+图 1　GPS跳线设置
+
+ 
+
+ 
+
+2） 创建驱动文件
+
+为实现GPS数据解析，需在Keil中创建相应驱动文件，以STM32工程模板为基础，添加相关驱动文件，工程目录如下：
+
+
+
+图 2 GPS工程目录
+
+BSP目录主要有:
+
+gps_parser.h    //GPS报文对外接口头文件   
+gps_parser.c    //GPS报文解析实现源码
+gps.c           //GPS模块功能控制与读取实现
+gps.h          //GPS模块对外接口文件
+usart.h        //调试串口UART2对外接口头文件
+usart.c        //调试串口UART2驱动实现源码
+usart.h为STM32的UART2调试串口的接口头文件，内容如下：
+
+【代码7-1-1】BSP/usart.h
+
+#ifndef __USART_H__
+#define __USART_H__
+#include "stm32f4xx.h"
+
+void UART2_Init(u32 bound);
+
+#endif
+usart.c为STM32的UART2调试串口驱动实现源码，内容如下：
+
+【代码7-1-2】BSP/usart.c
+
+#include <stdio.h>
+#include "usart.h"     
+
+void UART2_Init(u32 bound)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+    
+    //使能GPIOA和USART1时钟
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE);  //GPIOA在AHB1高速总线上
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2,ENABLE); //USART2在APB1硬件总线上
+
+    //USART2 对应引脚复用映射
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF_USART2); 
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF_USART2); 
+    
+    //USART2 IO配置
+    GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_2 | GPIO_Pin_3; 
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;     //复用
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;//速度50MHz
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;   //推挽复用输出
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_UP;    
+    GPIO_Init(GPIOA,&GPIO_InitStructure);  
+    
+    //USART2 端口配置
+    USART_InitStructure.USART_BaudRate = bound;  //波特率设置
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;  //字长8bit
+    USART_InitStructure.USART_StopBits   = USART_StopBits_1;       //1停止位
+    USART_InitStructure.USART_Parity     = USART_Parity_No;          //无校验
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;//无硬件数据流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;    //收发
+    USART_Init(USART2, &USART_InitStructure); 
+    
+    NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;         //USART2中断向量
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 3; //抢占优先级3
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;          //子优先级3
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;              //IRQ通道使能
+    NVIC_Init( &NVIC_InitStructure );    
+    
+    USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//开中断
+    USART_Cmd(USART2, ENABLE);  //使能串口2 
+}
+
+/*
+发送一个字符 
+*/
+void UART_SendByte( USART_TypeDef * pUSARTx, uint8_t ch)
+{
+    //发送一个字节数据到USART
+    USART_SendData(pUSARTx, ch);
+        
+    //等待发送数据寄存器为空
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+/*
+发送字符串
+*/
+void UART_SendString( USART_TypeDef * pUSARTx, char *str)
+{
+    unsigned int k=0;
+    do {
+      UART_SendByte( pUSARTx, *(str + k) );
+      k++;
+    } while(*(str + k)!='\0');
+  
+  //等待发送完成
+  while(USART_GetFlagStatus(pUSARTx,USART_FLAG_TC)==RESET){}
+}
+
+/*****************  发送一个16位数 **********************/
+void UART_SendHalfWord( USART_TypeDef * pUSARTx, uint16_t ch)
+{
+    uint8_t temp_h, temp_l;    
+    temp_h = (ch&0XFF00)>>8;      /* 取出高八位 */
+    temp_l = ch&0XFF;      /* 取出低八位 */
+    
+    USART_SendData(pUSARTx,temp_h);         /* 发送高八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+    
+    USART_SendData(pUSARTx,temp_l);         /* 发送低八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+//重定向c库函数printf到串口，重定向后可使用printf函数
+int fputc(int ch, FILE *f)
+{
+    // 发送一个字节数据到串口
+    USART_SendData(USART2, (uint8_t) ch);
+        
+    // 等待发送完毕
+    while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);        
+
+    return (ch);
+}
+
+//重定向c库函数scanf到串口，重写向后可使用scanf、getchar等函数
+int fgetc(FILE *f){
+    // 等待串口输入数据
+    while (USART_GetFlagStatus(USART2, USART_FLAG_RXNE) == RESET);
+    return (int)USART_ReceiveData(USART2);
+}
+
+
+/*
+串口2中断处理函数  
+*/
+void USART2_IRQHandler( void ){
+    u8 sbuf = 0;
+  
+    //接收中断服务函数
+    if(USART_GetFlagStatus(USART2, USART_FLAG_RXNE)) {
+        sbuf = USART_ReceiveData(USART2);//收到一个字节
+        USART_SendData(USART2, sbuf);    //回显转发回去
+    }
+}
+gps.h为GPS模块对外接口定义，主要内容为：
+
+【代码7-1-3】BSP/gps.h
+
+#ifndef __GPS_H__
+#define __GPS_H__
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "stm32f4xx.h"
+
+#include "gps_parser.h"
+
+void GPS_Init(uint32_t baud);
+void GPS_ReadAndParse(void);
+
+#endif //__GPS_H__
+gps.c为GPS模块的驱动实现文件，驱动具体内容在后续步骤中将逐一说明，当前先定义所需的全局量，以备使用，主要为头文件引用、缓冲区、宏定义等内容：
+
+【代码7-1-4】BSP/gps.c
+
+#include "stm32f4xx.h"
+#include "gps_parser.h"
+#include "usart.h"
+
+#define GPS_USART UART4
+
+uint8_t  g_GPS_RxBuf[500];
+volatile uint16_t g_GPS_RxBufLen = 0;
+volatile uint8_t  g_GPS_RxDataOK = 0; //标志GPS当前帧是否接收完
+gps_parser.h为GPS协议解析函数的对外接口定义，当前先定义部分全局宏与函数声明，其它内容在后续步骤中添加：
+
+【代码7-1-5】BSP/gps_parser.h
+
+#ifndef __GPS_PARSER_H__
+#define __GPS_PARSER_H__
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// 根据实际的数据修改ID
+#define ID_GGA     "$GNGGA"
+#define ID_RMC     "$GNRMC"
+#define ID_GLL     "$GNGLL"
+#define ID_GSA     "$GNGSA"
+#define ID_GSV     "$GPGSV"
+#define ID_VTG     "$GNVTG"
+
+// 语句解析控制 1：使能，0：禁用
+#define ENABLE_GGA  1
+#define ENABLE_RMC  1 
+#define ENABLE_GLL  1 
+#define ENABLE_GSA  1
+#define ENABLE_GSV  1
+#define ENABLE_VTG  1
+#define ENABLE_UTC  0
+
+void gps_parse(char *gps_data);
+
+#endif //__GPS_PARSER_H__
+gps_parser.c为GPS模块协议解析函数的实现文件，具体内容在后续步骤中将逐一说明，当前先定义所需的全局量，以备使用，主要为头文件引用、全局量定义等内容 ：
+
+【代码7-1-6】BSP/gps_parser.c
+
+#include "gps_parser.h"
+
+GGA gga;
+RMC rmc;
+GLL gll;
+GSA gsa;
+GSV gsv;
+VTG vtg;
+GPS数据解析
+1） GGA报文解析
+
+GGA即Global Positioning System Fix Data,　GPS定位数据消息，GGA报文样例如下：
+
+$GPGGA,060950.000,3150.7820,N,11711.9231,E,2,8,1.17,23.5,M,0.0,M,0000,0000*5A<CR><LF>
+$GNGGA,080237.000,3149.333190,N,11706.911552,E,2,15,0.74,53.489,M,-0.337,M,,*5F<CR><LF>
+$GPGGA,080325.000,3149.332234,N,11706.911645,E,1,10,0.88,45.086,M,-0.337,M,,*43<CR><LF>
+报文解析首先需在头文件中定义报文相关字段的结构体，如下：
+
+【代码7-2-1】BSP/gps_parser.h
+
+#if ENABLE_GGA
+// GGA字段结构体（GPS定位数据）
+typedef struct {
+    char utc[11];                     // UTC时间，格式为hhmmss.sss
+    double lat;                       // 纬度，格式为ddmm.mmmm
+    char lat_dir;                     // 纬度半球，N或S
+    double lon;                       // 经度，格式为dddmm.mmmm
+    char lon_dir;                     // 经度半球，E或W
+    unsigned char quality;            // 0=定位无效，1=定位有效
+    unsigned char sats;               // 使用卫星数量，从00到12
+    double hdop;                      // 水平精确度，0.5到99.9，单位m
+    double alt;                       // 海平面的高度，-9999.9到9999.9米
+    double undulation;                // 大地水准面高度，-9999.9到9999.9米
+    unsigned char age;                // 差分时间
+    unsigned short stn_ID;            // 差分站ID号0000-1023
+} GGA;
+void gga_parse(GGA *gga, char *gga_data);
+void gga_show(GGA *gga);
+#endif
+在gps_parser.c解析文件中实现解析函数，解析方法为使用C语言strpbrk函数依次查找逗号分隔符的位置，取出每个字段并按数据格式转换，同时实现相应的show调试输出函数，输出解析后的数据，方便调试，主要实现逻辑如下：
+
+【代码7-2-2】BSP/gps_parser.c
+
+#if ENABLE_GGA
+// GGA数据解析
+void gga_parse(GGA* gga, char *gga_data){
+    char *p = NULL;
+    char *next = NULL;
+    unsigned char times = 0;
+
+    if(gga == NULL || gga_data == NULL){
+        return;
+    }
+
+    p = gga_data;
+    memset(gga, 0, sizeof(GGA));
+    while( p ){
+        next = strpbrk(p, ",");
+        if(next == p){//字段为空，则跳过
+           p = next + 1;
+           times++;
+           continue;
+        }
+
+        if(next == NULL){
+            next = strpbrk(p, "*");
+            if(next == NULL){break;}
+        }
+        switch( times ){
+            case 1:   // UTC
+                next = strpbrk(p, ",");
+                memcpy(gga->utc, p, next-p);
+                break;
+            case 2:   // lat
+                gga->lat = strtod(p, NULL);
+                break;
+            case 3:   // lat dir
+                gga->lat_dir = p[0];
+                break;
+            case 4:   // lon
+                gga->lon = strtod(p, NULL);
+                break;
+            case 5:   // lon dir
+                gga->lon_dir = p[0];
+                break;
+            case 6:   // quality
+                gga->quality = (unsigned char)strtol(p, NULL, 10);
+                break;
+            case 7:   // sats
+                gga->sats = (unsigned char)strtol(p, NULL, 10);
+                break;
+            case 8:   // hdop
+                gga->hdop = (unsigned char)strtol(p, NULL, 10);
+                break;
+            case 9:   // alt
+                gga->alt = strtof(p, NULL);
+                break;
+            case 10:  //M
+                break;
+            case 11:  // undulation
+                gga->undulation = strtof(p, NULL);
+                break;
+            case 12:  //M
+                break;
+            case 13:  // age
+                gga->age = (unsigned char)strtol(p, NULL, 10);
+                break;
+            case 14:  // stn_ID
+                gga->stn_ID = (unsigned short )strtol(p, NULL, 10);
+                break;
+            default:
+                break;
+        }
+        p = next + 1;
+        times++;
+    }
+}
+
+void gga_show(GGA *gga){
+    printf("================GGA DATA:\r\n");
+
+    printf("utc:%s\r\n", gga->utc);
+    printf("lat:%lf\r\n", gga->lat);
+    printf("lat_dir:%c\r\n", gga->lat_dir);
+    printf("lon:%lf\r\n", gga->lon);
+    printf("lon_dir:%c\r\n", gga->lon_dir);
+    printf("quality:%u\r\n", gga->quality);
+    printf("sats:%u\r\n", gga->sats);
+    printf("hdop:%lf\r\n", gga->hdop);
+    printf("alt:%lf\r\n", gga->alt);
+    printf("undulation:%lf\r\n", gga->undulation);
+    printf("age:%u\r\n", gga->age);
+    printf("stn_ID:%u\r\n", gga->stn_ID);
+}
+#endif
+2） RMC报文解析
+
+RMC即Recommended Minimum Position Data，推荐的最小位置数据信息，格式样例如下：
+
+$GPRMC,060949.000,A,3150.7815,N,11711.9239,E,2.87,314.13,050314,,,D*69<CR><LF>
+$GNRMC,080237.000,A,3149.333190,N,11706.911552,E,0.00,5.78,221121,,,D,V*06<CR><LF>
+$GPRMC,080325.000,A,3149.332234,N,11706.911645,E,0.07,33.95,221121,,,A,V*27<CR><LF>
+报文解析首先需在头文件中定义报文相关字段的结构体，如下：
+
+【代码7-2-3】BSP/gps_parser.h
+
+#if ENABLE_RMC
+//RMC数据结构体（推荐定位信息数据格式）
+typedef struct {
+    char utc[11];                     // UTC时间，hhmmss.sss格式
+    unsigned char status;         // 状态，A=定位，V=未定位
+    double lat;                       // 纬度ddmm.mmmm，度分格式
+    char lat_dir;                     // 纬度N（北纬）或S（南纬）
+    double lon;                       // 经度dddmm.mmmm，度分格式
+    char lon_dir;                     // 经度E（东经）或W（西经）
+    double speed_Kn;                  // 速度
+    double track_true;                // 方位角，度
+    char date[7];                     // UTC date日期，DDMMYY格式
+    double mag_var;                   // 磁偏角，（000 - 180）度
+    char mag_var_dir;                     // 磁偏角方向，E=东W=西
+    char mode;       // 模式，A=自动，D=差分，E=估测，N=数据无效（3.0协议内容）
+    char nav_status;   //导航状态，S=安全 , C=注意，U=不安全，V= 导航状态无效
+}RMC;
+void rmc_parse(RMC *rmc, char *rmc_str);
+void rmc_show(RMC *rmc);
+#endif
+在gps_parser.c解析文件中实现解析函数，解析方法为使用C语言strpbrk函数依次查找逗号分隔符的位置，取出每个字段并按数据格式转换，同时实现相应的show调试输出函数，输出解析后的数据，方便调试，主要实现逻辑如下：
+
+【代码7-2-4】BSP/gps_parser.c
+
+#if ENABLE_RMC
+// RMC数据解析
+void rmc_parse(RMC *rmc, char *rmc_data){
+    char *p = NULL;
+    char *next = NULL;
+    unsigned char times = 0;
+
+    if(rmc == NULL || rmc_data == NULL){
+        return;
+    }
+
+    p = rmc_data;
+    memset(rmc, 0, sizeof(RMC));
+    while( p ){
+        next = strpbrk(p, ",");
+
+        if(next == p){//字段为空，则跳过
+           p = next + 1;
+           times++;
+           continue;
+        }
+
+        if(next == NULL){//已到结尾
+            next = strpbrk(p, "*");
+            if(next == NULL){break;}
+        }
+
+        switch( times ){
+            case 1:   // UTC
+                memcpy(rmc->utc, p, next-p);
+                break;
+            case 2:   //status
+                rmc->status = p[0];
+                break;
+            case 3:   // lat
+                rmc->lat = strtod(p, NULL);
+                break;
+            case 4:   // lat dir
+                rmc->lat_dir = p[0];
+                break;
+            case 5:   // lon
+                rmc->lon = strtod(p, NULL);
+                break;
+            case 6:   // lon dir
+                rmc->lon_dir = p[0];
+                break;
+            case 7:   // speen Kn
+                rmc->speed_Kn = strtod(p, NULL);
+                break;
+            case 8:   // track true
+                rmc->track_true = strtod(p, NULL);
+                break;
+            case 9:   //date
+                memcpy(rmc->date, p, next-p);
+                break;
+            case 10:  // mag var
+                rmc->mag_var = strtod(p, NULL);
+                break;
+            case 11:  // mag_var dir
+                rmc->mag_var_dir = p[0];
+                break;
+            case 12:  // mode
+                rmc->mode = p[0];
+                break;
+            case 13:  // nav status
+                rmc->nav_status = p[0];
+                break;
+            default:
+                break;
+        }
+        p = next + 1;
+        times++;
+    }
+}
+void rmc_show(RMC *rmc){
+    printf("================RMC DATA:\r\n");
+
+    printf("utc:%s\r\n", rmc->utc);
+    printf("status:%u\r\n", rmc->status);
+    printf("lat:%lf\r\n", rmc->lat);
+    printf("lat_dir:%c\r\n", rmc->lat_dir);
+    printf("lon:%lf\r\n", rmc->lon);
+    printf("lon_dir:%c\r\n", rmc->lon_dir);
+
+    printf("speed_Kn:%lf\r\n", rmc->speed_Kn);
+    printf("track_true:%lf\r\n", rmc->track_true);
+
+    printf("date:%s\r\n", rmc->date);
+    printf("mag_dir:%lf\r\n", rmc->mag_var);
+    printf("mag_var_dir:%u\r\n", rmc->mag_var_dir);
+    printf("mode:%c\r\n", rmc->mode);
+    printf("nav_status:%c\r\n", rmc->nav_status);
+
+}
+#endif
+3） GLL报文解析
+
+GLL即Geographic Latitude and Longitude，定位地理信息，报文样例如下：
+
+$GNGLL,3149.333190,N,11706.911552,E,080237.000,A,D*42<CR><LF>
+$GPGLL,3149.332234,N,11706.911645,E,080325.000,A,A*52<CR><LF>
+报文解析首先需在头文件中定义报文相关字段的结构体，如下：
+
+【代码7-2-5】BSP/gps_parser.h
+
+#if ENABLE_GLL
+// GPGLL数据结构体（地理定位信息）
+typedef struct {
+    double lat;                       // 纬度，格式为ddmm.mmmm
+    char lat_dir;                     // 纬度半球，N或S
+    double lon;                       // 经度，格式为dddmm.mmmm
+    char lon_dir;                     // 经度半球，E或W
+    char utc[11];                     // UTC时间，格式为hhmmss.sss
+    char status;                 // 状态标志位，A：有效，V无效
+}GLL;
+void gll_parse(GLL *gll, char *gll_str);
+void gll_show(GLL *gll);
+#endif
+在gps_parser.c解析文件中实现解析函数，解析方法为使用C语言strpbrk函数依次查找逗号分隔符的位置，取出每个字段并按数据格式转换，同时实现相应的show调试输出函数，输出解析后的数据，方便调试，主要实现逻辑如下：
+
+【代码7-2-6】BSP/gps_parser.c
+
+#if ENABLE_GLL
+// GLL数据解析
+void gll_parse(GLL *gll, char *gll_data){
+    char *p = NULL;
+    char *next = NULL;
+    unsigned char times = 0;
+
+    if(gll ==NULL || gll_data==NULL){
+        return;
+    }
+
+    p = gll_data;
+    memset(gll, 0, sizeof(GLL));
+    while (p){
+        next = strpbrk(p, ",");
+        if(next == p){//字段为空，则跳过
+           p = next + 1;
+           times++;
+           continue;
+        }
+
+        if(next == NULL){
+            next = strpbrk(p, "*");
+            if(next == NULL){break;}
+        }
+        switch (times){
+            case 1:   // lat
+                gll->lat = strtod(p, NULL);
+                break;
+            case 2:   // lat dir
+                gll->lat_dir = p[0];
+                break;
+            case 3:   // lon
+                gll->lon = strtod(p, NULL);
+                break;
+            case 4:   // lon dir
+                gll->lon_dir = p[0];
+                break;
+            case 5:   // utc
+                memcpy(gll->utc, p, next-p);
+                break;
+            case 6:  // status
+                gll->status = p[0];
+                break;
+            default:
+                break;
+        }
+        p = next + 1;
+        times++;
+    }
+}
+void gll_show(GLL *gll){
+    printf("================GLL DATA:\r\n");
+
+    printf("lat:%lf\r\n", gll->lat);
+    printf("lat_dir:%c\r\n", gll->lat_dir);
+    printf("lon:%lf\r\n", gll->lon);
+    printf("lon_dir:%c\r\n", gll->lon_dir);
+
+    printf("utc:%s\r\n", gll->utc);
+    printf("status:%c\r\n", gll->status);
+}
+#endif
+4） GSA报文解析
+
+GSA即GPS DOP and Active Satellites, 提供当前卫星信息，样例报文如下：
+
+$GNGSA,A,3,22,29,26,25,03,32,31,16,194,193,,,1.35,0.74,1.13,1*0E<CR><LF>
+$GNGSA,A,3,66,65,76,67,77,,,,,,,,1.35,0.74,1.13,2*06<CR><LF>
+$GPGSA,A,3,26,31,32,193,22,29,25,03,16,194,,,1.20,0.88,0.81,1*1D<CR><LF>
+报文解析首先需在头文件中定义报文相关字段的结构体，如下：
+
+【代码7-2-7】BSP/gps_parser.h
+
+#if ENABLE_GSA
+//GSA数据结构体（当前卫星信息）
+typedef struct {
+    unsigned char mode_MA;            // 定位模式(选择2D/3D)，A=自动选择，M=手动选择
+    unsigned char mode_123;           // 定位类型，1=未定位，2=2D定位，3=3D定位
+    unsigned char prn[12];
+    double pdop;                      // PDOP综合位置精度因子（0.5 - 99.9）
+    double hdop;                      // HDOP水平精度因子（0.5 - 99.9）
+    double vdop;                      // VDOP垂直精度因子（0.5 - 99.9）
+    unsigned char sysid;              // 定位系统类型
+}GSA;
+void gsa_parse(GSA *gsa, char *gsa_str);
+void gsa_show(GSA *gsa);
+#endif
+在gps_parser.c解析文件中实现解析函数，解析方法为使用C语言strpbrk函数依次查找逗号分隔符的位置，取出每个字段并按数据格式转换，同时实现相应的show调试输出函数，输出解析后的数据，方便调试，主要实现逻辑如下：
+
+【代码7-2-8】BSP/gps_parser.c
+
+#if ENABLE_GSA
+// GSA数据解析
+void gsa_parse(GSA *gsa, char *gsa_data){
+    char *p = NULL;
+    char *next = NULL;
+    unsigned char times = 0;
+
+    if(gsa == NULL || gsa_data == NULL){
+        return;
+    }
+
+    p = gsa_data;
+    memset(gsa, 0, sizeof(GSA));
+    while( p ){
+        next = strpbrk(p, ",");
+        if(next == p){//字段为空，则跳过
+           p = next + 1;
+           times++;
+           continue;
+        }
+
+        if(next == NULL){
+            next = strpbrk(p, "*");
+            if(next == NULL){break;}
+        }
+        switch( times ){
+            case 1:   // mode_MA
+                gsa->mode_MA = p[0];
+                break;
+            case 2:   // mode_123
+                gsa->mode_123 = p[0];
+                break;
+            case 15:  // pdop
+                gsa->pdop = strtod(p, NULL);
+                break; 
+            case 16:  // hdop
+                gsa->hdop = strtod(p, NULL);
+                break;
+            case 17:  // vdop
+                gsa->vdop = strtod(p, NULL);
+            case 18:  //sysid
+                gsa->sysid = strtol(p, NULL, 10);
+            default:
+                break;
+        }
+
+        //prn 1-12
+        if(times>=3 && times<=14){
+            gsa->prn[times-3] = strtol(p, NULL, 10);
+        }
+        p = next + 1;
+        times++;
+    }
+}
+void gsa_show(GSA *gsa){
+    int i = 0;
+    printf("================GSA DATA:\r\n");
+
+    printf("mode_MA:%u\r\n", gsa->mode_MA);
+    printf("mode_123:%u\r\n", gsa->mode_123);
+
+    for(i=0; i<12; i++){
+        printf("prn%d:%u\r\n", i, gsa->prn[i]);
+    }
+
+    printf("pdop:%lf\r\n", gsa->pdop);
+    printf("hdop:%lf\r\n", gsa->hdop);
+    printf("vdop:%lf\r\n", gsa->vdop);
+    printf("sysid:%u\r\n", gsa->sysid);
+}
+#endif
+5） GSV报文解析
+
+GSV即GPS Satellites in View，可视卫星数，样例报文如下：
+
+$GPGSV,4,1,13,194,72,074,43,26,61,222,45,31,61,352,43,32,60,116,47,1*5A<CR><LF>
+$GPGSV,4,2,13,50,51,161,39,193,49,150,41,22,30,288,41,29,26,082,41,1*5E<CR><LF>
+$GPGSV,4,3,13,25,23,042,38,03,20,311,38,16,19,215,38,10,09,175,,1*6A<CR><LF>
+$GPGSV,4,4,13,195,,,,1*5B<CR><LF>
+报文解析首先需在头文件中定义报文相关字段的结构体，如下：
+
+【代码7-2-9】BSP/gps_parser.h
+
+#if ENABLE_GSV
+#pragma pack(1)                       // 便于指针偏移取值
+// 可见卫星信息结构体
+typedef struct {
+    unsigned char prn;                // PRN 码（伪随机噪声码）
+    unsigned char elev;               // 卫星仰角（00 - 90）度
+    unsigned short azimuth;           // 卫星方位角（00 - 359）度
+    unsigned char SNR;                // 信噪比
+}SAT_INFO;
+#pragma pack()
+
+// GSV数据结构体(可见卫星信息)
+typedef struct {
+    unsigned char  msgs;               // 本次GSV语句的总数目
+    unsigned char  msg;               // 当前处理的是条目编号
+    unsigned char sats;               // 当前可见卫星总数
+    unsigned char sysid;              // 定位系统类型
+    SAT_INFO sat_info[36];            // 卫星信息
+}GSV;
+void gsv_parse(GSV *gsv, char *gsv_str);
+void gsv_show(GSV *gsv);
+#endif
+在gps_parser.c解析文件中实现解析函数，解析方法为使用C语言strpbrk函数依次查找逗号分隔符的位置，取出每个字段并按数据格式转换，同时实现相应的show调试输出函数，输出解析后的数据，方便调试，主要实现逻辑如下：
+
+【代码7-2-10】BSP/gps_parser.c
+
+
+#if ENABLE_GSV
+// GSV数据解析
+void gsv_parse(GSV *gsv, char *gsv_data){
+    char *p = NULL;
+    char *next = NULL;
+    unsigned char times   = 0;
+    unsigned char sat_count = 0;//本条消息中卫星计数
+    unsigned char sat_index = 0;//整体卫星索引
+
+    if(gsv == NULL || gsv_data == NULL){
+        return;
+    }
+
+    p = gsv_data;
+    while(p){
+        next = strpbrk(p, ",");
+        if(next == p){//字段为空，则跳过
+           p = next + 1;
+           times++;
+           continue;
+        }
+        if(next == NULL){
+            next = strpbrk(p, "*");
+            gsv->sysid = strtol(p, NULL, 10);
+            break;
+        }
+
+        if(times >= 4){//计算卫星保存位置
+            sat_index = (gsv->msg-1)*4 + sat_count;
+            if(sat_index >= gsv->sats){
+                sat_index = gsv->sats - 1;
+            }
+        }
+        switch( times ){
+            case 1:   //msgs
+                gsv->msgs = (unsigned char)strtol(p, NULL, 10);
+                break;
+            case 2:   //msg
+                gsv->msg = (unsigned char)strtol(p, NULL, 10);
+                break;
+            case 3:   //sats
+                gsv->sats = (unsigned char)strtol(p, NULL, 10);
+                break;
+            case 4:   //prn
+                gsv->sat_info[sat_index].prn     = strtol(p,NULL,10);
+                break;
+            case 5:   //elev
+                gsv->sat_info[sat_index].elev    = strtol(p,NULL,10);
+                break;
+            case 6:   //azimuth
+                gsv->sat_info[sat_index].azimuth = strtol(p,NULL,10);
+                break;
+            case 7:   //SNR
+                gsv->sat_info[sat_index].SNR     = strtol(p,NULL,10);
+                times = 3;
+                sat_count++;
+                break;
+            default:
+                break;
+        }
+        p = next + 1;
+        times++;
+    }
+}
+void gsv_show(GSV *gsv){
+    int i = 0;
+    printf("================GSV DATA:\r\n");
+
+    printf("msgs:%u\r\n", gsv->msgs);
+    printf("msg:%u\r\n", gsv->msg);
+    printf("sats:%u\r\n", gsv->sats);
+
+    for(i=0; i<gsv->sats; i++){
+        printf("-----------sat:%dr\n", i);
+        printf("prn:%u\r\n", gsv->sat_info[i].prn);
+        printf("elev:%u\r\n", gsv->sat_info[i].elev);
+        printf("azimuth:%u\r\n", gsv->sat_info[i].azimuth);
+        printf("SNR:%u\r\n", gsv->sat_info[i].SNR);
+    }
+    printf("sysid:%u\r\n", gsv->sysid);
+}
+#endif
+6） VTG报文解析
+
+VTG即Track Made Good and Ground Speed，地⾯速度信息，样例报文如下：
+
+$GNVTG,5.78,T,,M,0.00,N,0.00,K,D*2C<CR><LF>
+$GPVTG,33.95,T,,M,0.07,N,0.14,K,A*03<CR><LF>
+报文解析首先需在头文件中定义报文相关字段的结构体，如下：
+
+【代码7-2-11】BSP/gps_parser.h
+
+#if ENABLE_VTG
+//VTG数据结构体（地面速度信息）
+typedef struct {
+    double track_true;                // 运动角度，真北参照系
+    double track_mag;                 // 运动角度，磁北参照系
+    double speed_Kn;                  // 水平运动速度（0.00），节，Knots
+    double speed_Km;                  // 水平运动速度（0.00）, 公里/时，km/h
+    char   mode;
+}VTG;
+void vtg_parse(VTG *vtg, char *vtg_str);
+void vtg_show(VTG *vtg);
+#endif
+在gps_parser.c解析文件中实现解析函数，解析方法为使用C语言strpbrk函数依次查找逗号分隔符的位置，取出每个字段并按数据格式转换，同时实现相应的show调试输出函数，输出解析后的数据，方便调试，主要实现逻辑如下：
+
+【代码7-2-12】BSP/gps_parser.c
+
+#if ENABLE_VTG
+// VTG数据解析
+void vtg_parse(VTG *vtg, char *vtg_data){
+    char *p = NULL;
+    char *next = NULL;
+    unsigned char times = 0;
+
+    if(vtg == NULL || vtg_data == NULL){
+        return;
+    }
+
+    p = vtg_data;
+    memset(vtg, 0, sizeof(VTG));
+    while( p ){
+        next = strpbrk(p, ",");
+
+        if(next == p){//字段为空，则跳过
+           p = next + 1;
+           times++;
+           continue;
+        }
+
+        if(next == NULL){
+            next = strpbrk(p, "*");
+            if(next == NULL){break;}
+        }
+        switch (times){
+            case 1:   // track true
+                vtg->track_true = strtod(p, NULL);
+                break;
+            case 3:   // track mag
+                vtg->track_mag = strtod(p, NULL);
+                break;
+            case 5:   // speed Kn
+                vtg->speed_Kn = strtod(p, NULL);
+                break;
+            case 7:   // speed Km
+                vtg->speed_Km = strtod(p, NULL);
+                break;
+            case 9:   //mode
+                vtg->mode = p[0];
+                break;
+            default:
+                break;
+        }
+        p = next + 1;
+        times++;
+    }
+}
+void vtg_show(VTG *vtg){
+    printf("================VTG DATA:\r\n");
+
+    printf("track_true:%lf\r\n", vtg->track_true);
+    printf("track_mag:%lf\r\n", vtg->track_mag);
+    printf("speed_Kn:%lf\r\n", vtg->speed_Kn);
+    printf("speed_Km:%lf\r\n", vtg->speed_Km);
+    printf("mode:%c\r\n", vtg->mode);
+}
+#endif
+7） GPS报文区分
+
+GPS有多种报文，在获取报文数据后需根据报文头进行区分，不同报文调用不同解析函数，可使用C语言的strncmp函数实现，主要源码内容如下：
+
+【代码7-2-13】BSP/gps_parser.c
+
+
+void gps_parse(char *gps_data){
+    if(gps_data == NULL){
+        return;
+    }
+
+#if ENABLE_GGA
+    if(strncmp(gps_data, ID_GGA, strlen(ID_GGA)) == 0){
+        gga_parse(&gga, gps_data);
+        gga_show( &gga );
+        return;
+    }
+#endif
+
+#if ENABLE_RMC
+    if(strncmp(gps_data, ID_RMC, strlen(ID_RMC)) == 0){
+        rmc_parse(&rmc, gps_data);
+        rmc_show(&rmc );
+        return;
+    }
+#endif
+
+#if ENABLE_GLL
+    if(strncmp(gps_data, ID_GLL, strlen(ID_GLL)) == 0){
+        gll_parse(&gll, gps_data);
+        gll_show( &gll );
+        return;
+    }
+#endif
+
+ #if ENABLE_GSA
+    if(strncmp(gps_data, ID_GSA, strlen(ID_GSA)) == 0){
+        gsa_parse(&gsa, gps_data);
+        gsa_show( &gsa );
+        return;
+    }
+#endif
+
+#if ENABLE_GSV
+    if(strncmp(gps_data, ID_GSV, strlen(ID_GSV)) == 0){
+        gsv_parse(&gsv, gps_data);
+        gsv_show( &gsv );
+        return;
+    }
+#endif
+
+#if ENABLE_VTG
+    if(strncmp(gps_data, ID_VTG, strlen(ID_VTG)) == 0){
+        vtg_parse(&vtg, gps_data);
+        vtg_show( &vtg );
+        return;
+    }
+#endif
+}
+GPS模块控制与测试
+1） 模块初始化
+
+要从GPS模块中读取报文数据，需首先对GPS模块进行初始化，主要为串口引脚与参数、中断等的初始化，
+
+串口使用PC10、PC11为UART4串口，串口配置为8个数据位，1个停止位，无校验位，串口只有使用接收中断。
+
+【代码7-3-1】BSP/gps.c
+
+/*
+初始化GPS，主要为GPIO与UART接口
+*/
+void GPS_Init(uint32_t baud){
+    GPIO_InitTypeDef GPIO_InitStructure; 
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;  
+
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC,  ENABLE);    //打开串口GPIO的时钟
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_UART4, ENABLE); //使能UART时钟
+   
+    //USART GPIO初始化
+    //配置UART引脚为复用功能
+    GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_10|GPIO_Pin_11;  
+    GPIO_InitStructure.GPIO_Mode  = GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_UP;  
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOC, &GPIO_InitStructure);
+
+    GPIO_PinAFConfig(GPIOC, GPIO_PinSource10,  GPIO_AF_UART4);  //连接PXx到USARTx_Rx
+    GPIO_PinAFConfig(GPIOC, GPIO_PinSource11, GPIO_AF_UART4); //连接 PXx到USARTx_Tx
+
+    //配置串口USART模式
+    USART_InitStructure.USART_BaudRate   = baud;
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;  //数据位8
+    USART_InitStructure.USART_StopBits   = USART_StopBits_1;  //停止位：1个停止位
+    USART_InitStructure.USART_Parity = USART_Parity_No;  //校验位选择：不使用校验
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;  //不使用硬件流
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;  //同时使能接收和发送
+    USART_Init(GPS_USART, &USART_InitStructure);   //完成USART初始化配置
+
+    USART_ITConfig(GPS_USART, USART_IT_RXNE, ENABLE);    //使能串口接收中断
+    USART_ITConfig(GPS_USART, USART_IT_IDLE, ENABLE ); //使能串口总线空闲中断    
+    USART_Cmd(GPS_USART, ENABLE);  // 使能串口
+    
+    //配置NVIC中断
+    NVIC_InitStructure.NVIC_IRQChannel = UART4_IRQn;          //配置USART为中断源
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;  //抢断优先级
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;           //优先级 
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;      //使能中断
+    NVIC_Init(&NVIC_InitStructure);     //初始化配置NVIC    
+}
+2） 模块数据接收
+
+GPS模块需从UART4串口读取报文，在UART4的接收中断函数中使用USART_ReceiveData()逐字节节接收即可。GPS模块的报文按周期定时发送，每批报文发送完串口会有空闲IDLE中断，在IDLE中断中使用g_GPS_RxDataOK标志数据已接完毕。
+
+【代码7-3-2】BSP/gps.c
+
+void UART4_IRQHandler(void){
+    //接收中断
+    if(USART_GetITStatus(UART4, USART_IT_RXNE) != RESET){
+        if(g_GPS_RxDataOK == 1){return;}//上批数据未处理，则不接收新数据
+        if(g_GPS_RxBufLen >= 500){return;}
+
+        g_GPS_RxBuf[g_GPS_RxBufLen++] = USART_ReceiveData( UART4 );
+        USART_ClearITPendingBit(UART4, USART_IT_RXNE);
+    }
+    
+    if(USART_GetITStatus(UART4, USART_IT_IDLE ) == SET ){  //数据帧接收完毕
+        //通过先读SR，后读DR，以清除IDLE中断状态位
+        UART4->SR; //先读SR寄存器
+        UART4->DR; //再读DR寄存器
+        g_GPS_RxDataOK = 1;
+    }
+}
+3） 模块报文解析
+
+读取报文后，依次解析出每行报文，根据报文头调用GPS解析函数进行解析，并输出解析结果：
+
+【代码7-3-3】BSP/gps.c
+
+void GPS_ReadAndParse(void){
+    char *pGpsStart = NULL;
+    char *pGpsEnd   = NULL;
+
+#if 0  //For Test
+    //char *gps_str = "$GNVTG,5.78,T,,M,0.00,N,0.00,K,D*2C\r\n";
+    //char *gps_str = "$GPGSV,4,1,13,194,72,074,43,26,61,222,45,31,61,352,43,32,60,116,47,1*5A\r\n";
+    //char *gps_str = "$GNGSA,A,3,22,29,26,25,03,32,31,16,194,193,,,1.35,0.74,1.13,1*0E\r\n";
+    //char *gps_str = "$GNGLL,3149.333190,N,11706.911552,E,080237.000,A,D*42\r\n";
+    //char *gps_str = "$GNRMC,080237.000,A,3149.333190,N,11706.911552,E,0.00,5.78,221121,,,D,V*06\r\n";
+    char *gps_str = "$GNGGA,080237.000,3149.333190,N,11706.911552,E,2,15,0.74,53.489,M,-0.337,M,,*5F\r\n";
+    gps_parse( gps_str );
+#endif
+
+    //读取一次串口数据
+    while(g_GPS_RxDataOK != 1){} //等待接收完一批数据
+    printf("================GPS DATA:\r\n");
+    printf("%s", g_GPS_RxBuf);
+
+    //依次解析每个语句
+    pGpsStart = (char*)g_GPS_RxBuf;
+    while( 1 ){
+        pGpsStart = strpbrk(pGpsStart, "$");
+        if(pGpsStart == NULL){//无GPS报文，跳出
+            break;
+        }
+
+        //找结尾换行符，则查询
+        pGpsEnd = strpbrk(pGpsStart, "\n");
+        if(pGpsEnd == NULL){//无完整语句，跳出
+            break;
+        }
+
+        gps_parse( pGpsStart );
+        pGpsStart = pGpsEnd + 1;
+    }
+
+    //解析完，清除缓冲区，接收下一批数据
+    memset(g_GPS_RxBuf, 0, sizeof(g_GPS_RxBuf));
+    g_GPS_RxBufLen = 0;
+    g_GPS_RxDataOK = 0;
+}
+4） 测试示例实现
+
+GPS驱动实现完成后，需在main.c主程序中实现测试示例程序，首先需初始化GPS_Init()，然后调用GPS_ReadAndParse()函数循环读取数据并完成解析。源码实现如下：
+
+【代码7-3-4】USER/main.c
+
+#include <stdio.h>
+#include "stm32f4xx.h"
+#include "gps.h"
+#include "usart.h"
+
+
+/**
+  * @brief  主函数
+  * @param  无
+  * @retval 无
+  */
+int main(void)
+{
+    UART2_Init(115200);
+    GPS_Init(9600);
+    
+    while(1){
+        GPS_ReadAndParse();
+    }
+}
+四、实验结果
+程序编译下载烧写后运行，GPS模块的输出报文及解析后的数据通过串口输出，当前为方便查看，GPS模块配置只输出RMC报文，结果如下，其他报文类似。
+
+图A_示例运行_RMC解析
+
+图3 GPS

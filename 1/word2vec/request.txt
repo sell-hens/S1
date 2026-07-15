@@ -1,0 +1,533 @@
+1. 实验目的
+• 掌握word2vec+lr(逻辑回归)模型的应用；
+
+• 掌握文本预处理方法；
+
+• 掌握文本分类模型的评估。
+
+2. 实验内容
+实验背景
+
+随着信息化的快速发展，电网企业积累的数据越来越多，如电力操作规则、运维记录、调度运行记录、营销档案、客服、故障检修等各方面的文本数据。由于中文文本数据的复杂性，无法直接运用机器学习模型对文本数据进行智能化分析，所以对电力文本挖掘的研究显得十分重要。
+
+实验内容
+
+本实验基于word2vec+lr(逻辑回归)模型对95598投诉工单进行分类：使用gensim工具包基于在搜狐新闻数据集上预训练的word2vec向量进行增量训练（词向量维度为100），并根据新生成的词向量文件对训练文本进行表示，再选择逻辑回归模型对文本进行分类，最终结果如下图所示。
+
+
+从上图中可以看出，word2vec+lr最终在测试集上的准确率为0.97，平均F1值为0.97，效果非常不错，但是依然还有很大的改进空间。
+
+3. 实验数据
+数据集位置
+
+数据集较大，需要从因特网下载。
+
+将会在【实验过程】中通过执行命令下载数据集。最终数据集会存放在项目目录下。
+
+了解数据
+
+本实验数据集包括5个文件，用于存放预处理、训练等步骤所需的数据及相关文件：
+
+• stopwords.txt：停用词列表，用于筛去不需要的词或字符。
+
+• class.txt：文件中包含所有投诉分类的具体类别，工单可以分类为报修、查询、投诉、举报、以往业务、表扬、建议、反映8个类别，内容如下图所示:
+
+
+• train.txt、test.txt：95598工单投诉训练、测试数据，训练数据集有4229条，包含投诉的具体内容及对应的类别编号，部分训练数据如下图所示:
+
+
+类别编号（0-7）与class.txt文件中的具体类别（报修、查询、投诉、举报、以往业务、表扬、建议、反映）相对应。例如：
+
+投诉数据0的具体内容为“客户反映浙江绍兴电力客户服务中心供电营业厅电话号码为13806757792的工作抢修人员工作态度热情，处理及时，予以表扬。关联报修单：2015112086780627”，投诉类别“5”对应为具体类别“表扬”。
+
+• souhu.w2v：在搜狐新闻数据集上预训练的word2vec模型文件
+
+4. 实验知识点
+• gensim工具包使用
+
+• word2vec增量训练
+
+• 逻辑回归建模
+
+5. 实验环境
+• Linux Ubuntu 操作系统
+
+• Jupyter 代码编辑器 + Terminal
+
+• Python3.7
+
+• pytorch 1.6.0
+
+• tqdm
+
+• sklearn
+
+• genism
+
+• jieba
+
+6. 实验分析
+本实验的流程如下：
+
+1）word2vec增量训练
+
+• 数据预处理：加载训练数据、停用词文件、预训练的word2vec模型，对训练文本进行分词、去除停用词等处理，并返回处理后的文本数据；
+
+• 实现word2vec增量训练：生成新的词向量模型文件；
+
+2）word2vec+LR模型的训练和评估
+
+• 句向量计算：在该部分中，首先对训练集文本进行分词；然后使用训练的词向量对词进行嵌入映射得到文本中每个词对应的词向量；最后根据文本词向量求平均值，计算出文本句向量。
+
+• 将文本句向量送入逻辑回归模型进行训练，并打印逻辑评估报告评估模型性能。
+
+
+步骤1： 开发准备
+创建项目
+
+新建一个目录，命名为“LrW2v-Classification”，本实验中所有的数据集和代码都放在该目录下。
+
+下载项目所需数据
+
+打开终端，在终端输入下面的命令：
+
+# cd /home/LrW2v-Classification
+# wget https://tecs-prod-static.obs.cn-north-1.myhuaweicloud.com/dataSet/systemLib/47f1c240bcb84a99bd135aecc9116834.zip
+# unzip 47f1c240bcb84a99bd135aecc9116834.zip
+# rm -rf 47f1c240bcb84a99bd135aecc9116834.zip
+解压后的数据集路径为/home/LrW2v-classification/95598_1
+
+创建目录
+
+在LrW2v-Classification目录下新建一个目录，命名为vectors，用于存放word2vec增量训练后的模型文件和词向量文件。
+
+创建代码文件
+
+在LrW2v-Classification目录下，新建2个Python文件，分别命名为train_w2v.py、word2vec+lr.py。
+
+至此，整个实验的目录结构如下图所示：
+
+
+步骤2： word2vec增量训练
+• 为了让预训练的词向量中包含本项目训练集文本中的语义信息，我们需要在预训练词向量的基础上对训练集文本进行增量训练。为了方便实现训练，我们定义了一个类TrainWord2Vec，该类主要有以下几个方法：
+
+• __init__()：初始化方法，该方法主要用来加载停用词以及模型中的参数：词向量长度、最低词频，窗口大小、是否增量训练和预训练词向量文件等进行配置；
+
+• _get_stopwords()：该方法用来加载停用词；
+
+• get_text()：该方法负责文本预处理，即对文本进行分词并去除停用词；
+
+• get_model()：该方法负责重新训练word2vec；
+
+• update_model()：该方法负责增量训练word2vec；
+
+• run()：该方法负责实现整个训练流程。
+
+在train_w2v.py文件中，编写word2vec增量训练的代码。
+
+数据预处理
+
+
+导入使用的包，这里我们导入了两个工具:
+
+• genism中的Word2Vec类,后面我们将用它来训练word2vec词向量;
+
+• jieba：用来对中文进行分词的工具包，可以将一个中文句子切分成一个个的词。
+
+【代码1】train_w2v.py
+
+#导入使用的包
+from gensim.models.word2vec import Word2Vec
+import jieba
+编写TrainWord2Vec类及其__init__()方法代码。在__init__()方法中，我们主要进行了以下工作：
+
+• 首先，我们调用了一个加载停用词的方法（该方法将在下一步中实现），把停用词加载进来，因为我们对文本进行分词后需要去掉停用词（一般指对分类没有意义的常用词）；
+
+• 然后，我们对几个重要的属性进行赋值，分别为：
+
+1）训练词向量的长度num_features：指的是最终词向量的维度；
+
+2）最低词频min_word_count：对于出现频率小于该值的词，我们直接去掉；
+
+3）滑动窗口大小context：指的就是word2vec算法中上下文的词个数（窗口）；
+
+4）开关incremental：该参数指定是否进行增量训练；
+
+5）预训练模型路径old_path：如果进行增量训练，需要指定该路径，表示预训练模型的路径。
+
+【代码2】train_w2v.py
+
+#编写word2vec增量训练类
+class TrainWord2Vec:
+    # 初始化方法
+    def __init__(self, stopwords_file,
+                 num_features=50,
+                 min_word_count=1,
+                 context=5,
+                 incremental=False,
+                 old_path=None):
+        """
+        定义变量
+        :param stopword: 停用词表
+        :param num_features:  返回的向量长度
+        :param min_word_count:  最低词频
+        :param context: 滑动窗口大小
+        :param incremental: 是否进行增量训练
+        :param old_path: 若进行增量训练，原始模型路径
+        """
+        # 加载停用词
+        self.stopwords=self._get_stopwords(stopwords_file)
+        self.num_features = num_features
+        self.min_word_count = min_word_count
+        self.context = context
+        self.incremental = incremental
+        self.old_path = old_path
+编写完成加载停用词的_get_stopwords()方法代码。
+
+_get_stopwords()方法负责根据给定的停用词文件路径参数，加载指定的停用词，这些词都是对文本分类没有意义的常用词，在文本预处理是需要去掉，最终加载的停用词以集合set返回。
+
+【代码3】train_w2v.py
+
+    def _get_stopwords(self,file_path):
+        """
+        该方法用来从停用词文件中加载停用词
+        :param file_path: 停用词路径
+        :return: 停用词集合
+        """
+        #创建集合
+        stopwords = set()
+        #打开文件并遍历每一行
+        with open(file_path, 'r') as infile:
+            for line in infile:
+                line = line.rstrip('\n')#去掉右边的换行符
+                if line:
+                    stopwords.add(line.lower())#转换成小写后添加到集合中
+        return stopwords
+编写完成加载训练数据的get_text()方法代码。该方法从训练数据中读取文本数据并进行分词，去除停用词；步骤如下:
+
+• 打开文件，遍历每一行，对每一行进行分词；
+
+• 遍历每一个词，判断是否是停用词，不是停用词就保留；
+
+• 最终返回的是由这些词构成的列表，形式如：[[词11,词12,…],[词21,词22,…],[ 词31,词32,…],…]
+
+【代码4】train_w2v.py
+
+    def get_text(self,content_file):
+        """
+        该方法从训练数据中读取文本数据并进行分词，去除停用词，最终返回分词之后的文章列表
+        :param file_path: 训练文件路径  每行结构： 文本 \t 标签
+        :param stopwords_file: 停用词文件路径
+        :return: 由每行文本的词构成的列表的列表
+        """
+        corpus = []
+        # 打开文本 遍历每一行
+        for line in open(content_file, 'r', encoding='utf-8'):
+            curr_words=[]
+            # 遍历每一行中的每个词
+            for word in jieba.cut(line.strip().split('\t')[0]):
+                # 去除停用词
+                if word not in self.stopwords:
+                    curr_words.append(word)
+            corpus.append(curr_words)
+        print(corpus)
+        return corpus
+实现word2vec增量训练
+
+
+编写完成word2vec训练的get_model()方法代码。该方法负责重新训练模型，我们实例化了一个Word2Vec对象并进行模型训练，最后将训练得到的模型返回。其接收了4个参数：
+
+• sentences：经过分词清洗之后的语料；
+
+• size：词向量的维度（长度）；
+
+• min_count：最小词频，词频少于该值的词将不被使用和训练；
+
+• window：上下文窗口大小。
+
+【代码5】train_w2v.py
+
+    def get_model(self, text):
+        """
+        从头训练word2vec模型
+        :param text: 经过清洗之后的语料数据
+        :return: word2vec模型
+        """
+        model = Word2Vec(sentences=text,
+                         size=self.num_features,
+                         min_count=self.min_word_count,
+                         window=self.context)
+        return model
+编写完成增量训练的update_model()方法代码。
+
+该方法负责进行增量训练，分为以下几个步骤实现：
+
+• 加载预训练的旧模型；
+
+• 根据新的语料text更新词表，因为新的语料中可能出现之前的模型没有见过的词；
+
+• 进行增量训练；
+
+• 将训练之后的模型返回。
+
+【代码6】train_w2v.py
+
+    def update_model(self, text):
+        """
+        增量训练word2vec模型
+        :param text: 经过清洗之后的新的语料数据
+        :return: word2vec模型
+        """
+        model = Word2Vec.load(self.old_path)  # 加载旧模型
+        model.build_vocab(text, update=True)  # 更新词汇表
+        model.train(sentences=text,
+                    total_examples=model.corpus_count,#total_examples:句子数。
+                    epochs=model.iter)  # epoch=iter语料库的迭代次数；（默认为5）
+        return model
+编写完成训练流程的run()方法代码。该方法中我们实现了整个业务的流程，流程如下：
+
+• 调用get_text()对文本进行分词、去停用词等处理，并返回处理后的文章数据；
+
+• 判断是否进行增量训练：
+
+1）是：将上一步处理后的text文本传给update_model()方法进行增量训练；
+
+2）不是：将上一步处理后的text文本传给get_model()方法进行重新训练。
+
+• 保存模型和词向量。
+
+【代码7】train_w2v.py
+
+    def run(self,content_file,save_path):
+        """
+        负责完成整个训练和保存的流程
+        :param content_file: 训练预料文件路径
+        :param save_path: 词向量模型保存路径
+        :return: None
+        """
+        #提取文本分词结果
+        text = self.get_text(content_file)
+        if self.incremental:#判断是否增量训练
+            model = self.update_model(text)#增量训练
+        else:
+            model = self.get_model(text)#重新训练
+        # 保存模型
+        model.save(save_path+"/word2vec_new.model")#保存模型
+至此，整个词向量训练模型类搭建完毕，马上我们就可以编写主函数，调用该类进行训练。
+
+编写main()函数实例化TrainWord2Vec对象完成训练。
+
+在main()函数中，我们提供了停用词文件路径、训练预料文件路径、预训练的词向量保存路径，还要指定增量训练的模型保存路径，在项目路径下新建vectors文件夹目录作为增量训练之后的文件保存路径。然后实例化刚刚实现的TrainWord2Vec类的对象，并指定incremental=True（代表进行增量训练），最后调用run()方法完成训练和模型保存。
+
+【代码8】train_w2v.py
+
+if __name__ == '__main__':
+    stopword='95598_1/stopwords.txt'# 停用词文件路径
+    content_file = '95598_1/train.txt'# 训练语料文件路径
+    save_path = 'vectors'# 增量训练后的word2vec模型文件路径
+    old_path = '95598_1/souhu.w2v'# 预训练的word2vec模型词向量文件路径
+    #实例化对象
+    trainmodel = TrainWord2Vec(incremental=True,
+                               stopwords_file=stopword,
+                               old_path=old_path)
+    #训练并保存
+    trainmodel.run(content_file,save_path)
+运行train_w2v.py文件，完成词向量训练。在终端执行以下命令运行train_w2v.py文件：
+
+# python train_w2v.py 
+运行结束后，在vectors文件夹下保存了word2vec模型增量训练后新的模型文件word2vec_new.model。
+
+步骤3： word2vec+LR模型进行文本分类
+在word2vec词向量训练完成后，我们就可以开始机器学习逻辑回归进行文本分类模型Word2vec+LR的搭建了，下面我们实现负责Word2vec+LR模型搭建训练的类LrW2vModel，该类的主要方法有：
+
+• __init__()：该方法为初始化方法，主要实现词向量加载、类别标签加载和逻辑回归模型实例化；
+
+• _load_w2v()：该方法负责加载词向量，在__init__方法中调用；
+
+• _get_text_label()：该方法负责文本预处理（分词）；
+
+• _compute_doc_vec_single()：该方法负责计算一篇文章的句向量；
+
+• _compute_doc_vec()：该方法调用_compute_doc_vec_single方法计算所有文章的句向量；
+
+• train()：该方法实现训练主体流程：文本预处理、文本表示和模型训练；
+
+• evaluate()：该方法负责模型的评估，最终输出分类报告。
+
+在word2vec+lr.py文件中添加以下代码。
+
+句向量计算
+
+
+导入需要使用的包。
+
+【代码9】word2vec+lr.py
+
+from gensim.models import Word2Vec
+import numpy as np
+import jieba#jieba分词
+from sklearn.linear_model import LogisticRegression#逻辑回归
+from sklearn.metrics import classification_report#分类报告函数
+编写LrW2vModel类，实现word2vec+lr模型的搭建。首先实现__init__()方法，该方法接收两个参数：
+
+• w2v：词向量文件路径，用于加载词向量文件；
+
+• labels：分类标签文件路径，用于加载类别标签
+
+• 在该方法中，我们主要做了三项工作：
+
+• 加载新的词向量文件，用于得到文本的词向量；
+
+• 加载类别标签，用于显示预测的类别标签；
+
+• 初始化逻辑回归，用于后面的训练。
+
+【代码10】word2vec+lr.py
+
+class LrW2vModel(object):
+    def __init__(self,w2v,labels):
+        """
+        初始化模型
+        :param w2v: 词向量模型路径
+        :param labels: 标签文件路径
+        """
+        #加载词向量文件
+        self.w2v=self._load_w2v(w2v)
+        #加载标签
+        self.class_list = [x.strip() for x in open(labels, encoding='utf-8').readlines()]
+        #初始化逻辑回归模型
+        self.model=LogisticRegression(multi_class='multinomial', solver='lbfgs')
+编写_load_w2v()方法，该方法负责中调用Word2Vec.load()方法，加载已经训练好的词向量模型。
+
+【代码11】word2vec+lr.py
+
+    #加载词向量模型
+    def _load_w2v(self,path):
+        w2v = Word2Vec.load(path)
+        return w2v
+编写_get_text_label()函数，该方法负责文本的预处理，包含以下几个步骤：
+
+• 遍历文件的每一行，将文本x和标签y分开；
+
+• 对文本x进行分词；
+
+• 返回分词后的文本和标签。
+
+【代码12】word2vec+lr.py
+
+    def _get_text_label(self,file):
+        """
+        获取文本词列表和标签
+        :param file: 训练文本文件路径
+        :return: 文本的词列表，文本标签
+        """
+        articles=[]
+        labels=[]
+        # 打开文本 遍历每一行
+        for line in open(file, 'r', encoding='utf-8'):
+            text,label=line.strip().split('\t') #提取文本内容和标签
+            articles.append(jieba.lcut(text)) #文本分词
+            labels.append(label)
+        lens=np.array([len(x) for x in articles])
+        print("Longest:{},Shortest:{},Average:{}".format(lens.max(),lens.min(),lens.mean()))
+        return articles,np.array(labels).astype(np.int)
+编写_compute_doc_vec_single()方法，该方法负责计算一篇文本的向量表示，分以下几个步骤处理：
+
+• 构建一个词向量长度的全0一维数组；
+
+• 遍历文本每个词，判断是否在词向量中存在；若存在，累加该词的词向量，同时计数器加1；
+
+• 计算文本向量（文本向量=累加向量/词个数），返回文本向量。
+
+这样，我们将每一个文本表示成一个跟词向量等长的向量，代表的是文本中所有词的词向量的平均值。
+
+【代码13】word2vec+lr.py
+
+    def _compute_doc_vec_single(self,article):
+        """
+        返回文本中所有词的词向量的平均值作为文本向量表示
+        :param article: 一个文本
+        :return: 返回文本的向量表示
+        """
+        vec = np.zeros((self.w2v.layer1_size,), dtype=np.float32)
+        n = 0
+        for word in article:#遍历文本的每个词
+            if word in self.w2v:#如果在词表中
+                vec += self.w2v[word]#累加词向量
+                n += 1 # 累加词的个数
+        return vec / n # 求均值
+编写_compute_doc_vec()方法，该方法遍历每一个文本，调用_compute_doc_vec_single()方法计算每一个文本的向量表示，最终返回数据形式的文本特征矩阵，矩阵形状：[文本数，词向量长度]。
+
+【代码14】word2vec+lr.py
+
+    #计算文本的词向量表示
+    def _compute_doc_vec(self,articles):
+        #遍历每个文本，计算文本向量表示
+        return np.row_stack([self._compute_doc_vec_single(x) for x in articles])
+模型训练和评估
+
+
+编写train()方法，该方法调用前面定义的方法和模型完成模型训练流程，主要步骤：
+
+• 处理数据，得到文本和标签；
+
+• 提取向量特征，对文本进行向量表示；
+
+• 逻辑回归模型训练，根据处理好的x和labels，进行模型训练。
+
+【代码15】word2vec+lr.py
+
+    def train(self,data):
+        #1.处理数据
+        articles,labels=self._get_text_label(data)
+        #2.计算句向量
+        x=self._compute_doc_vec(articles)
+        #3.模型训练
+        self.model.fit(x,labels)
+编写evaluate()方法，该方法负责使用验证集数据来对训练好的模型进行评估，主要步骤为：
+
+• 加载验证集数据并处理；
+
+• 提取文本向量特征；
+
+• 使用训练的模型进行预测；
+
+• 输出分类报告，对模型进行评估。
+
+【代码16】word2vec+lr.py
+
+    def evaluate(self,data):
+        #1.处理数据
+        articles, labels = self._get_text_label(data)
+        # 2.计算句向量
+        x = self._compute_doc_vec(articles)
+        #3.模型预测
+        y_pred=self.model.predict(x)
+        #4.模型评估 分类报告
+        return classification_report(y_pred=y_pred,
+                                     y_true=labels ,
+                                     labels=[0,1,2,3,4,5,6,7],
+                                     target_names=self.class_list)
+编写main()函数，实例化LrW2vModel对象并进行训练和评估，我们制定了训练集文件、验证集文件、词向量文件和标签文件，然后实例化前面实现的模型类，并调用train()方法进行训练，最后调用evaluate()方法进行评估。
+
+【代码17】word2vec+lr.py
+
+if __name__ == '__main__':
+    train_data='95598_1/train.txt'
+    dev_data = '95598_1/test.txt'
+    w2v='vectors/word2vec_new.model'
+    labels='95598_1/class.txt'
+    model=LrW2vModel(w2v,labels)
+    model.train(train_data)
+    print(model.evaluate(dev_data))
+在终端执行以下命令运行word2vec+lr.py文件：
+
+# python word2vec+lr.py 
+训练模型并输出分类报告。运行结果如下图所示：
+
+
+9. 实验结果（结论）
+本实验采用的是word2vec文本表示和逻辑回归模型搭建的文本分类模型，该模型具有结构简单、性能高等优点，分类效果也非常好，基本能够满足一般场景下的文本分类需求。我们运行train_w2v.py文件，然后再运行word2vec+lr.py文件，结果如下图所示：
+
+
+从结果中可以看到，模型的分类准确率为0.97，具备一般场景下的文本分类能力。

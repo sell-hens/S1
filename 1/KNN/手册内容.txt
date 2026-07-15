@@ -1,0 +1,166 @@
+K近邻分类：身体指数分类
+步骤1：任务目标
+理解 K近邻（K-Nearest Neighbors, KNN）分类算法的基本原理；
+掌握分类任务的完整流程：数据加载、特征选择、特征标准化、数据划分、模型训练、预测与评价指标计算；
+能够通过调整 K 值、距离度量方式和权重方式优化模型性能；
+理解多分类评价指标（Accuracy、Precision、Recall、F1-score）的含义及计算方法。
+步骤2：任务描述
+本任务以 500_Person_Gender_Height_Weight_Index.csv 数据集为基础，构建一个 KNN 分类模型，实现根据身高（Height）、体重（Weight）以及性别（Gender）预测 身体指数（Index）类别。
+
+该数据集包含 500 名不同性别人员的身高、体重及身体指数类别信息，常用于分类算法教学与模型对比实验。数据集中每一条记录对应一个人的测量信息，共 500 条数据。字段说明如下：
+
+字段名	类型	说明
+Gender	字符串	性别，Male/Female
+Height	数值	身高（厘米）
+Weight	数值	体重（公斤）
+Index	整数	身体指数类别（分类目标）
+请参照以下步骤补全代码，实现身体指数分类的全过程：
+
+数据加载：使用 pandas.read_csv() 读取数据集 500_Person_Gender_Height_Weight_Index.csv；
+生成自变量和因变量：选取身高（Height）、体重（Weight）和性别（Gender）作为自变量 X，身体指数（Index）作为因变量 y；
+特征编码：使用 LabelEncoder 将 Gender 特征编码为数值（Male=1, Female=0）；
+数据集划分：已给出划分代码，使用 train_test_split 方法将数据集划分为训练集和测试集，分别得到X_train（训练集特征数据）、X_test（测试集特征数据）、y_train（训练集目标变量/标签）、y_test（测试集目标变量/标签）四个子集，用于模型训练与性能评估；
+特征标准化：使用 StandardScaler 对训练集和测试集特征进行标准化处理；
+KNN模型训练：使用 KNeighborsClassifier 对训练集进行建模；
+模型预测：对测试集进行预测；
+模型评估：已给出评估代码，使用 sklearn.metrics 中的 accuracy_score, precision_score, recall_score, f1_score 对模型预测结果进行评价。
+ 
+
+示例：
+
+输入：无手动输入（加载 500_Person_Gender_Height_Weight_Index 数据集）
+
+输出：（请调整模型参数，提高自动评测得分）
+
+ 模型评估结果：
+    准确率 (Accuracy): 0.9600
+    精确率 (Precision): 0.9710
+    召回率 (Recall): 0.9600
+    F1 分数 (F1 Score): 0.9598
+    
+您的最终得分是为 95.98 分 
+评分规则：
+
+满分100分，自动评测，最终得分由「 F1 Score × 100」 计算得到。
+
+步骤3：相关知识
+在本任务中，需要完成数值型特征二分类任务，涉及特征选择、标准化处理、KNN模型训练、预测及评估等。下面对每个步骤涉及的核心知识进行讲解：
+
+1. KNN分类原理
+
+概念：KNN 是一种基于实例的监督学习分类算法，常用于分类和回归。分类的核心思想是一个样本的类别由它最邻近的 K 个训练样本的类别决定，因此 K 的取值非常重要。
+2. 数据加载
+
+本任务使用 500_Person_Gender_Height_Weight_Index 数据集，数据存储为文本文件（数据存储路径为：“500_Person_Gender_Height_Weight_Index.csv”），包含“Gender”、“Height”、“Weight”和“Index”四个字段。
+加载数据集是机器学习的第一步，通常将数据读入 pandas DataFrame，便于后续处理。可以使用pandas.read_csv()完成文本文件的加载。
+核心语法：
+import pandas as pd
+df = pd.read_csv(
+    "data_file_path",    # 文件路径
+)
+3. 生成自变量和因变量
+
+在数据加载完成后，需要从数据集中选择与预测目标相关的特征列作为自变量 X，选择目标列作为因变量 y。
+常用函数/操作：DataFrame 列索引和切片：使用df["col_name"]访问 DataFrame 中某一列数据，返回单列数据。
+核心语法：
+# 特征矩阵 X
+X = df[["feature_column1", "feature_column2","feature_column3"]]
+
+# 目标向量 y
+y = df["target_column"] 
+4. 特征编码
+
+特征编码是指将非数值型特征（如字符串类别、性别、城市、颜色等）转换为数值型特征，使机器学习模型能够处理。
+KNN 模型计算样本间距离（欧氏距离、曼哈顿距离等），距离计算只能处理数值型数据，不能直接处理字符串类别（如 "Male"、"Female"）
+核心语法：使用 LabelEncoder 可以把类别特征映射为整数。（如，Male -> 1, Female -> 0）
+from sklearn.preprocessing import LabelEncoder
+
+# 假设 df 是你的数据集，feature_name 是待编码的类别特征列名
+encoder = LabelEncoder()
+df[feature_name] = encoder.fit_transform(df[feature_name])
+ 
+
+5. 数据划分
+
+在实际机器学习任务中，合理划分训练集与测试集是保证模型训练效果和评估结果可靠性的关键步骤。
+train_test_split 是 scikit-learn 提供的一个用于快速划分训练集和测试集的函数，train_test_split 函数常用参数如下：
+参数	说明
+arrays	待划分的数据集（DataFrame、数组或列表）
+train_size	训练集比例，如 0.75 表示训练集占 75%
+test_size	测试集比例，如果指定了 train_size 可不指定
+shuffle	是否在划分前打乱数据，默认为 True
+random_state	随机种子，保证划分结果可复现
+stratify	指定分类标签列进行分层划分，通常用于分类任务
+核心语法：
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y,                 # 待划分的数据集
+    train_size=xxx,      # 训练集占比
+    random_state=xxx      # 随机种子，保证可复现
+    stratify=y             # 指定分类标签列进行分层划分
+)
+4. 特征标准化（StandardScaler）
+
+因为 KNN 依赖距离计算，不同特征量纲差异过大会导致某些特征主导距离，影响分类结果。使用 StandardScaler 对特征进行标准化，使每列特征均值为 0、方差为 1，可以保证各特征对距离的贡献均衡，从而提升模型性能。
+StandardScaler 是 scikit-learn 提供的用于特征缩放的工具，该函数常用参数如下：
+参数名	类型	说明
+fit()	方法	计算训练数据的统计量（均值、标准差/最小值、最大值）
+transform()	方法	对数据进行缩放，使用 fit 时计算的统计量
+fit_transform()	方法	等价于先 fit() 再 transform()
+核心语法：注意，标准化的fit仅在训练集特征上完成，然后将同样的变换应用到测试集特征，这是为了避免测试集信息泄露到训练过程中
+from sklearn.preprocessing import StandardScaler
+# 初始化标准化器
+scaler = StandardScaler()
+# 对特征矩阵 X1和X2 进行标准化
+X1_scaled = scaler.fit_transform(X1)  # 在训练集 X1 上拟合（fit）标准化参数，并对训练集特征进行转换。
+X2_scaled = scaler.transform(X2)      # 使用在训练集上拟合得到的参数，对测试集 X2 进行相同的标准化转换。
+5. KNN模型训练与预测
+
+初始化KNN模型对象，并使用训练集 X_train、y_train 拟合模型。
+KNeighborsClassifier 是 scikit-learn 提供的 K 近邻分类器类，用于实现基于邻居投票的分类算法。核心参数和调参参考如下所示：
+参数	类型	默认值	说明	调参参考
+n_neighbors	int	5	邻居数量 K，影响分类平滑度	小 K（1~5） → 更灵敏，易过拟合；大 K（10~20） → 平滑分类，易欠拟合；可通过交叉验证选择最佳 K
+weights	str 或 callable	'uniform'	权重方式	'uniform' → 每个邻居等权重；'distance' → 距离近的邻居权重更大；距离加权通常效果更好
+algorithm	str	'auto'	查找邻居的方法	'auto' → 自动选择；训练集大时可尝试 'kd_tree' 或 'ball_tree' 加速
+metric	str 或 callable	'minkowski'	距离度量	'euclidean' → 欧氏距离（常用）；'manhattan' → 曼哈顿距离；可根据特征分布选择
+p	int	2	Minkowski 距离的指数	p=2 → 欧氏距离，p=1 → 曼哈顿距离
+核心语法：
+from sklearn.neighbors import KNeighborsClassifier
+
+# 初始化模型
+model = KNeighborsClassifier(
+    n_neighbors=k,
+    metric=metric,
+    weights=weights,
+    p=p,
+    algorithm=algorithm
+)
+
+# 模型训练
+model.fit(X_train, y_train)
+
+# 模型预测
+y_pred = model.predict(X_test)
+7.  KNN模型评估
+
+在实际分类任务中，仅仅训练出分类模型并获得预测结果是不够的，还需要对模型的预测性能进行量化评估。
+scikit-learn 提供了常用的分类评价指标函数，包括：
+函数	说明
+accuracy_score(y_true, y_pred)	准确率（Accuracy），表示模型预测正确的样本占总样本的比例。
+precision_score(y_true, y_pred,average='')	精确率（Precision），又称查准率，表示预测为正类的样本中实际为正类的比例。
+recall_score(y_true, y_pred,average='')	召回率（Recall），又称查全率，表示实际为正类的样本中被正确预测为正类的比例。
+f1_score(y_true, y_pred,average='')	F1 分数（F1-score），Precision 与 Recall 的调和平均数，用于综合衡量模型在正类识别上的能力。
+在多分类中，precision_score、recall_score和f1_score需要通过 average 参数来指定如何将各类别的指标汇总为一个整体指标。常见 average 取值及含义如下所示：
+average 取值	含义	适用场景
+"binary"	只计算指定正类的 Precision	二分类任务（默认）
+"macro"	对每个类别分别计算 Precision，然后简单平均	关注每个类别，类别不平衡时更公平
+"weighted"	按各类别样本数加权平均 Precision	类别不平衡，希望多数类影响更大
+"micro"	基于全局 TP、FP 计算 Precision	关注整体预测正确性
+None	返回每个类别的 Precision	需要查看各类别具体表现
+核心语法：
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
+# 计算分类评价指标
+Accuracy = accuracy_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred, average="xxx")
+测评名称： python编程自动测评

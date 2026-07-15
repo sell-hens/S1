@@ -1,0 +1,460 @@
+一、实验介绍
+1. 实验目的
+
+• 理解STM32F407的GPIO输入输出模式
+
+• 理解STM32F407的GPIO输出模式的配置方法
+
+• 掌握GPIO输出驱动LED、蜂鸣器的方法
+
+• 掌握GPIO输出LED闪烁、流水灯
+
+• 掌握GPIO输入模式的IO按键读取方式
+
+2. 实验内容
+
+• 【实验2-1】根据电路图配置GPIO输出，驱动LED和蜂鸣器
+
+• 【实验2-2】编写延时函数，实现LED闪烁、流水灯功能
+
+• 【实验2-3】配置GPIO输入模式，读取按键驱动LED亮灭
+
+3. 实验知识点
+
+• GPIO的输出模式的选择和配置方法
+
+• GPIO的输入模式的选择和配置方法
+
+• LED、蜂鸣器的驱动方法
+
+• 延时函数的编写和调试
+
+• 读取按键输入的一般流程
+
+4. 实验时长
+
+共2学时，学时分配如下：
+
+• 【实验2-1】（0.5学时）
+
+• 【实验2-2】（0.5学时）
+
+• 【实验2-3】（ 1 学时）
+
+5. 实验环境
+
+• Windows 10 操作系统；
+
+• MDK 5.25
+
+• 青软 遨游100开发板（QST-AU100）
+
+• ST固件库：STM32F4xx_DSP_StdPeriph_Lib_V1.4.0
+
+二、实验分析
+1) 根据电路图配置GPIO输出，驱动LED和蜂鸣器
+
+• 开启GPIOB的时钟
+
+• 配置三个LED所在的GPIO为输出、推挽、25MHz、无上下拉电阻的模式
+
+• 预设GPIO（PB5、PB0、PB1）输出值是高电平
+
+• 初始化GPIOB（使用上面的配置数据）
+
+• GPIO输出低电平点亮一个（或多个）LED
+
+• GPIO输出高电平熄灭一个（或多个）LED
+
+2) 编写延时函数，实现LED闪烁、流水灯功能
+
+• 初始化三个LED
+
+• 编写延时函数delay_ms()和delay_us()
+
+• 在main函数之前声明这两个延时函数
+
+• 主循环while(1)函数中通过调用500毫秒的延时函数，实现LED；调用延时函数和LED开启和关闭的的组合，实现3个 流水灯。
+
+3) 配置GPIO输入模式，读取按键驱动LED亮灭
+
+• 开启GPIOA和GPIOC的时钟
+
+• 配置和初始化按键1--4所在的GPIO为输入、2MHz、上拉电阻的模式
+
+• 编写和声明延时函数，用于延时
+
+• 主循环while(1)中,读取四个按键对应的的GPIO电平存入4个变量中。
+
+• 如果读到任意按键按下（低电平）延时20毫秒消抖动
+
+• 再次读取四个按键对应的的GPIO电平
+
+• 还有按键按下，代表按键真正按下。
+
+• 根据不同按键，点亮不同LED：KEY1点亮LED1，KEY2点亮LED2，KEY3点亮LED3，KEY4则熄灭3个 LED。
+
+三、实验步骤
+【实验2-1】根据电路图配置GPIO输出，驱动LED和蜂鸣器
+首先需要连接开发板，青软遨游100物联网开发板（下称“开发板”）连接PC计算机使用的是两个USB-Type-C接口，以及两条Type-C数据线，一个是下载仿真接口（仿真器）、一个是串口（USB串口），如果实验不需要串口与PC计算机通信，则只需要左侧一个接口连接计算机即可，连接后不需要单独给开发板供电。如图所示：
+
+
+插入仿真接口的数据线，并连接至PC计算机，计算机会提示检测到设备，并自动安装驱动程序，之后“此电脑”（我的电脑）里面会多出一个像U盘一样的设备，这个是用来更新仿真器固件的，不是真正的U盘，不需要操作，看到这个就代表仿真器驱动安装正常，如图：
+
+
+然后，打开开发板的电源，电源灯LED点亮，即可使用。
+
+STM32F407的GPIO具有多种类别的输入或输出模式，其中，输出模式有4种
+
+开漏输出：用于内外电平不相同的情况。
+复用开漏输出：用于GPIO复用输出的电平不相同的情况。
+推挽输出：驱动外部较大电流的器件。
+复用推挽输出：用于GPIO复用输出电平。
+对于驱动LED和蜂鸣器，一般需要配置为推挽输出模式，可以输出较大的电流。遨游100开发板的上配置了红、绿、蓝三个LED，和一个有源蜂鸣器，相关电路如图：
+
+
+如图所示，LED1-LED3，的阴极（右侧）分别接到了STM32F407的PB5、PB0、PB1三个GPIO上，LED的阳极分别通过电阻接到了电源3.3V上，因此，电流应该从左侧流向右侧才能点亮，左侧是电源3.3V（高电平），那么点亮LED需要对应的GPIO输出0V（低电平），如果输出高电平，则没有电流通过LED，就是熄灭。
+
+
+蜂鸣器BZ1的正极接到了3.3V电源上，负极通过三极管Q2接到了GND上（0V），三极管的基极通过1K电阻，连接到了STM32F407的PA8上，当PA8上输出高电平时，三极管截止状态，发射极和集电极之间没有电流通过，蜂鸣器不响；当PA8上输出低电平时，三极管导通（饱和）状态，发射极和集电极相当于导通，电流通过三极管和蜂鸣器，蜂鸣器响。
+
+ 在实验中，需要初始化上面提到的GPIO，并驱动它们输出高低电平。上个实验，已经基于ST的固件库建立了一个空白的MDK工程，本实验直接复制一份过来使用。复制一份“【实验1-1】工程模板”，并改名为“【实验2-1】LED BEEP”，然后双击里面的USERTemplate.uvprojx打开这个工程，进入main.c文件，在上个实验中main.c中第一行已经有：
+
+#include "stm32f4xx.h"
+这行程序的作用是包含头文件"stm32f4xx.h"，而这个文件当中包含了ST固件库的所有元素，有了这一行，以后，当前文件中就可以使用ST固件库中的所有函数、宏定义、参数、向量等内容。
+
+接下来的是主函数main：
+
+int main(void)
+{
+
+}
+任何STM32工程都有主函数，实际上除了中断、启动代码等，绝大部分程序都是在main函数中运行，上个实验建立的新工程，是空白工程，但也有主函数main，main中没有内容。
+
+程序所需要的全局变量、宏定义等需要放到main函数之前，例如，本实验需要定义一个用于初始化GPIO的结构体变量，就应该放到main函数之前：
+
+GPIO_InitTypeDef GPIO_InitStructure; //定义一个GPIO初始化用的结构体
+    在main函数中，首先要初始化三个LED所对应的GPIO的为推挽输出，具体流程是：
+
+开启GPIOB的时钟
+配置三个LED所在的GPIO（PB5、PB0、PB1）为输出、推挽、25MHz、无上下拉电阻的模式
+预设GPIO（PB5、PB0、PB1）输出值是高电平
+初始化GPIOB（使用上面的配置数据）
+GPIO输出低电平点亮一个（或多个）LED
+GPIO输出高电平熄灭一个（或多个）LED
+    /*开启 GPIOB 的时钟，才能使用 GPIOB*/
+    RCC_AHB1PeriphClockCmd ( RCC_AHB1Periph_GPIOB,  ENABLE ); //在AHB1上开启GPIOB的时钟
+    /*配置三个LED所在的GPIO（PB5、PB0、PB1）*/
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5 | GPIO_Pin_0 | GPIO_Pin_1; //要初始化的引脚号（PB5、PB0、PB1）
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;  //GPIO设置为输出模式
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;  //GPIO设置为推挽模式
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;  //速度设置为25MHz
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;  //没有上拉下拉电阻
+    
+    /*预先把输出设置为高电平，确保LED是初始化后是熄灭的*/
+    GPIO_SetBits(GPIOB, GPIO_Pin_5 | GPIO_Pin_0 | GPIO_Pin_1);
+    
+    /*使用上面配置的GPIO_InitStructure数据，初始化GPIOB*/
+    GPIO_Init( GPIOB,  &GPIO_InitStructure );
+
+    /*三个GPIO输出低电平，点亮三个LED*/
+    GPIO_ResetBits(GPIOB, GPIO_Pin_5 | GPIO_Pin_0 | GPIO_Pin_1);
+    
+    /*也可以逐个点亮，指令运行很快，两种方式看不出区别*/
+//  GPIO_ResetBits(GPIOB, GPIO_Pin_5);
+//  GPIO_ResetBits(GPIOB, GPIO_Pin_0);
+//  GPIO_ResetBits(GPIOB, GPIO_Pin_1);
+    
+    /*如果三个GPIO输出高电平，熄灭三个LED*/
+//  GPIO_SetBits(GPIOB, GPIO_Pin_5 | GPIO_Pin_0 | GPIO_Pin_1); 
+以上代码都是初始化代码，实验2-1还没有循环的代码，但是循环本身必须有，因此初始化后添加一个while(1)循环：
+
+    while(1)
+    {
+        
+    }
+这个循环是退不出的，因此初始化后，进入循环就相当于程序“停”在循环里了。
+
+编写好程序，点击编译按钮，或者按下键盘的F7，在编译成功没有error后，点击MDK左上方的下载按钮，或者按键盘的快捷键“F8”，即可下载到开发板上运行，上述的代码功能是点亮3个LED。开发板上可以看到现象如图：
+
+
+    接下来，编写蜂鸣器的代码。蜂鸣器的代码与LED类似，基本流程：
+
+开启GPIOA的时钟
+配置蜂鸣器所在的GPIO（PA8）为输出、推挽、25MHz、无上下拉电阻的模式
+预设GPIO（PA8）输出值是高电平
+初始化GPIOA（使用上面的配置数据）
+PA8输出低电平，蜂鸣器响
+PA8输出高电平，蜂鸣器不响
+   蜂鸣器的初始化代码应放到LED代码的后面，while(1)之前。
+
+    /*开启 GPIOA 的时钟，才能使用 GPIOA*/
+    RCC_AHB1PeriphClockCmd (RCC_AHB1Periph_GPIOA,ENABLE); //AHB1上开启GPIOA时钟
+    
+    /*配置蜂鸣器所在的GPIO（PA8）*/
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8; //要初始化的引脚号
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;  //GPIO设置为输出模式
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;  //GPIO设置为推挽模式
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;  //速度设置为25MHz
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;  //没有上拉下拉电阻
+    GPIO_SetBits(GPIOA, GPIO_Pin_8);//预先设置为高电平，蜂鸣器是不响的
+    GPIO_Init( GPIOA,  &GPIO_InitStructure );  //使用上述的数据，初始化GPIOB
+
+    /*PA8输出低电平，蜂鸣器响*/
+    GPIO_ResetBits(GPIOA, GPIO_Pin_8);
+    
+    /*如果PA8输出高电平，蜂鸣器停止鸣响*/
+//  GPIO_SetBits(GPIOA, GPIO_Pin_8);
+添加好蜂鸣器的代码，编译->下载运行，会点亮三个LED、蜂鸣器响。如果想熄灭或者关闭，请根据提示修改代码，再编译->下载运行。
+
+注：本实验1-1还没有进入循环，没有延时，因此任何代码都是瞬间运行完成的，能观察到的实验现象就是while(1)之前的最后一行代码执行完毕的状态，中间状态是看不到的。如果LED在初始化中被点亮又被熄灭，实验现象则只能看到熄灭，蜂鸣器亦是如此。
+
+【实验2-2】编写延时函数，实现LED闪烁、流水灯功能
+开发板的连接，与上个实验相同，但是实验代码要复制一份实验2-1的出来，文件夹命名为：【实验2-2】LED流水灯。依旧通过打开工程文件Template.uvprojx来打开新的工程，删除蜂鸣器相关的内容，本实验只用三个LED。
+
+程序编写流程：
+
+初始化三个LED
+编写延时函数delay_ms()和delay_us()放在main函数之后
+在main函数之前声明这两个延时函数
+主循环while(1)函数中：
+点亮LED1
+延时500毫秒
+熄灭LED1
+延时500毫秒
+函数代码的初始化部分：
+
+    /*开启 GPIOB 的时钟，才能使用 GPIOB*/
+    RCC_AHB1PeriphClockCmd (RCC_AHB1Periph_GPIOB,ENABLE);//开启GPIOB的时钟
+    
+    /*配置三个LED所在的GPIO（PB5、PB0、PB1）*/
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5 | GPIO_Pin_0 | GPIO_Pin_1;//要初始化的引脚号（PB5、PB0、PB1）
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;  //GPIO设置为输出模式
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;  //GPIO设置为推挽模式
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;  //速度设置为25MHz
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;  //没有上拉下拉电阻
+    
+    /*预先把输出设置为高电平，确保LED时初始化后是熄灭的*/
+    GPIO_SetBits(GPIOB, GPIO_Pin_5 | GPIO_Pin_0 | GPIO_Pin_1);
+    
+    /*使用上面配置的GPIO_InitStructure数据，初始化GPIOB*/
+    GPIO_Init( GPIOB,  &GPIO_InitStructure );
+      延时函数的原理就是让CPU循环运行很多空的指令，把时间等过去。一般是通过C语言的for循环来完成，循环的次数可以决定延时长短。
+
+      在main函数后，编写延时函数：
+
+/***** 简单延时函数,ms,us  *****/
+void delay_us(uint16_t nus)
+{
+    uint16_t i;
+    while(nus--)
+    {
+        i = 31;   
+        while(i--);
+    }
+}
+
+void delay_ms(u16 nms)
+{
+    uint16_t i;
+    while(nms--)
+    {
+        i = 33800; 
+        while(i--);
+    }
+}
+    延时函数中i的取值是用秒表进行测试确定的。延时函数需要在main函数之前声明一下才能调用：
+
+/* 函数声明 */
+void delay_us(uint16_t nus);
+void delay_ms(u16 nms);
+    声明以后，main函数中就可以调用延时函数了。在主循环while(1)中，编写LED闪烁的流程：
+
+    while(1)
+    {
+        GPIO_ResetBits(GPIOB, GPIO_Pin_5);//点亮LED1
+        
+        delay_ms(500);//延时500毫秒（0.5秒）
+        
+        GPIO_SetBits(GPIOB, GPIO_Pin_5);//熄灭LED1
+        
+        delay_ms(500);//延时500毫秒（0.5秒）
+    }
+编写好代码，编译 -> 下载运行，开发板上的现象是LED1以每秒一次的速度闪烁。 根据闪烁例程，重新编写流水灯流程：（上面闪烁的代码可以注释掉，不用删）
+
+以下过程无限循环：
+
+点亮LED1，熄灭LED2和LED3
+延时500毫秒
+点亮LED2，熄灭LED1和LED3
+延时500毫秒
+点亮LED3，熄灭LED1和LED2
+延时500毫秒
+     程序代码编写：（重写的While(1)循环）
+
+    while(1)
+    {
+        GPIO_ResetBits(GPIOB, GPIO_Pin_5); //点亮LED1
+        GPIO_SetBits(GPIOB, GPIO_Pin_0 | GPIO_Pin_1); //熄灭LED2，3
+        delay_ms(500);//延时500毫秒（0.5秒）
+        GPIO_ResetBits(GPIOB, GPIO_Pin_0); //点亮LED2
+        GPIO_SetBits(GPIOB, GPIO_Pin_5 | GPIO_Pin_1); //熄灭LED1，3
+        delay_ms(500);//延时500毫秒（0.5秒）
+        GPIO_ResetBits(GPIOB, GPIO_Pin_1); //点亮LED3
+        GPIO_SetBits(GPIOB, GPIO_Pin_5 | GPIO_Pin_0); //熄灭LED1，2
+        delay_ms(500);//延时500毫秒（0.5秒）
+    }
+编写好代码，编译 -> 下载运行，开发板上的现象是三个LED从左至右循环点亮，间隔是500毫秒（0.5秒）。
+
+【实验2-3】配置GPIO输入模式，读取按键驱动LED亮灭
+在青软 遨游100开发板上，配备有4个连接GPIO的按键，KEY1—KEY4，对应的四个GPIO分别是“PA0，PC13，PC6，PC7”，如图所示：
+
+
+      四个按键的左侧连接到了对应的GPIO，而且都安装了10K的上拉电阻到电源3.3V，因此在按键未按下的情况下，四个按键都断路，四个GPIO的默认电平都是高电平；当按下某个按键时，按键的左右两侧短路，相当于把对应的GPIO连接到了GND上（低电平），在数字电路中，高电平和低电平相连结果是低电平（1 & 0 = 0），因此通过读取GPIO的低电平，就可以读取按键按下的信号。每个按键两端并联的电容器，是为了增减稳定性，消除电火花的干扰。
+
+STM32的GPIO具有多种输入模式：
+
+浮空输入：不带上拉下拉电阻的输入，外部输入决定电平。
+上拉输入：默认电平是高（1）
+下拉输入：默认电平是低（0）
+模拟模式：用于ADC电压采集，和DAC电压输出。
+根据电路结构的特点，本实验的GPIO模式应当选择“浮空输入”或者“上拉输入”，选择上拉输入即相当于IC芯片内外两个上拉电阻，效果不变。
+
+拷贝一份实验一的工程代码，文件夹改名为：“【实验2-3】按键检测”，打开工程的过程不再赘述，打开以后可以先编译下载一次，确保文件正常。
+
+GPIO输入模式的配置流程接近于输出，也需要先定义一个GPIO配置结构体，放到main函数之前，而且要编写和声明延时函数，定义四个变量，用于存储按键的读取值：
+
+u8 KeyValue_1,KeyValue_2,KeyValue_3,KeyValue_4;//定义四个变量
+
+GPIO_InitTypeDef GPIO_InitStructure; //定义一个GPIO初始化用的结构体
+
+/* 函数声明 */
+void delay_us(uint16_t nus);
+void delay_ms(u16 nms);
+在main函数中，要初始化四个按键所在的两组GPIO：GPIOA和GPIOC，初始化LED用于显示。具体流程步骤：
+
+开启GPIOA和GPIOC的时钟
+配置按键1所在的GPIO（PA0）为输入、2MHz、上拉电阻的模式
+初始化GPIOA（使用上面的配置数据）
+配置按键2、3、4所在的GPIO（PC13、PC6、PC7）为输入、2MHz、上拉电阻的模式
+初始化GPIOC（使用上面的配置数据）
+初始化LED1—3(参考实验2-1，2-2)
+编写和声明延时函数，用于延时。(参考实验2-2)
+延时函数，应放在main函数之后：
+
+/***** 简单延时函数,ms,us  *****/
+void delay_us(uint16_t nus)
+{
+    uint16_t i;
+    while(nus--)
+    {
+        i = 31;   
+        while(i--);
+    }
+}
+void delay_ms(u16 nms)
+{
+    uint16_t i;
+    while(nms--)
+    {
+        i = 33800; 
+        while(i--);
+    }
+}
+main函数里面的初始化流程代码：
+
+    /** 配置四个按键KEY1-KEY4所在的GPIO **/
+    /*开启 GPIOA GPIOC的时钟*/
+    RCC_AHB1PeriphClockCmd (RCC_AHB1Periph_GPIOA | RCC_AHB1Periph_GPIOC,ENABLE);
+    
+    
+    /*配置 KEY1 所在的GPIO（PA0）*/
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0; //要初始化的引脚号
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;  //GPIO设置为输入模式
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;  //速度设置为2MHz
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;  //上拉电阻
+    /*使用上面配置的GPIO_InitStructure数据，初始化GPIOA*/
+    GPIO_Init( GPIOA,  &GPIO_InitStructure );
+    
+    
+    /*配置 KEY2，3，4 所在的GPIO（PC13，PC6，PC7）*/
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_13 | GPIO_Pin_6 | GPIO_Pin_7;//引脚号
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;  //GPIO设置为输入模式
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;  //速度设置为2MHz
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;  //上拉电阻 
+    /*使用上面配置的GPIO_InitStructure数据，初始化GPIOC*/
+    GPIO_Init( GPIOC,  &GPIO_InitStructure );
+    
+    
+    /*下面：配置初始化三个LED，用于显示*/
+    /*开启 GPIOB 的时钟，才能使用 GPIOB*/
+    RCC_AHB1PeriphClockCmd (RCC_AHB1Periph_GPIOB,ENABLE);//开启GPIOB的时钟
+    
+    /*配置三个LED所在的GPIO（PB5、PB0、PB1）*/
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5 | GPIO_Pin_0 | GPIO_Pin_1;//要初始化的引脚号（PB5、PB0、PB1）
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;  //GPIO设置为输出模式
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;  //GPIO设置为推挽模式
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;  //速度设置为25MHz
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;  //没有上拉下拉电阻
+    
+    /*预先把输出设置为高电平，确保LED时初始化后是熄灭的*/
+    GPIO_SetBits(GPIOB, GPIO_Pin_5 | GPIO_Pin_0 | GPIO_Pin_1);
+    
+    /*使用上面配置的GPIO_InitStructure数据，初始化GPIOB*/
+    GPIO_Init( GPIOB,  &GPIO_InitStructure );
+在主循环Whlie(1)中，读取每个按键对应的GPIO值，消抖动后，点亮相应的LED。流程步骤：
+
+主循环while(1)中,读取四个按键对应的的GPIO电平存入4个变量中。
+如果读到任意按键按下（低电平）延时20毫秒消抖动
+再次读取四个按键对应的的GPIO电平
+还有按键按下，代表按键真正按下。
+根据不同按键，点亮不同LED：KEY1点亮LED1，KEY2点亮LED2，KEY3点亮LED3，KEY4则熄灭3个 LED。
+循环结束。
+循环流程代码
+
+while(1)
+{
+    /* 读取四个按键的 GPIO值(1 or 0) */
+    KeyValue_1 = GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_0);//读PA0的输入(KEY1)
+   KeyValue_2 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_13);//读PC13的输入(KEY2)
+KeyValue_3 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_6);//读PC6的输入(KEY3)
+KeyValue_4 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_7);//读PC7的输入(KEY4)
+        
+    /*判断有无按键按下?*/
+    if((0 == KeyValue_1)||(0 == KeyValue_2)||(0 == KeyValue_3)||(0 == KeyValue_4))
+    {
+        delay_ms(20);//延时20毫秒，消抖动，然后再次读取
+        KeyValue_1 = GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0); //读取PA0
+        KeyValue_2 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_13); //读取PC13
+        KeyValue_3 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_6); //读取PC6
+        KeyValue_4 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_7); //读取PC7
+            
+        if(0 == KeyValue_1)//按键1 按下？
+        {
+            GPIO_ResetBits(GPIOB, GPIO_Pin_5);  //按下时点亮LED1
+        }
+        else if(0 == KeyValue_2)//按键2 按下？
+        {
+            GPIO_ResetBits(GPIOB, GPIO_Pin_0);  //按下时点亮LED2
+        }
+        else if(0 == KeyValue_3)//按键3 按下？
+        {
+            GPIO_ResetBits(GPIOB, GPIO_Pin_1);  //按下时点亮LED3
+        }
+        else if(0 == KeyValue_4)//按键4 按下？
+        {
+            GPIO_SetBits(GPIOB, GPIO_Pin_5);  //熄灭LED1
+            GPIO_SetBits(GPIOB, GPIO_Pin_0);  //
+            GPIO_SetBits(GPIOB, GPIO_Pin_1);  //
+        }
+    }
+}
+编写好代码，编译 -> 下载运行，依次按下开发板上的按键1—3，可以点亮LED1—3，如果按下按键4，则熄灭三个LED 。
+
+
+四、实验结果
+1）【实验2-1】 实现了GPIO输出低电平点亮三个LED，让蜂鸣器发声。如果输出高电平，则LED不亮，蜂鸣器不响。请你编程实现不同的LED、蜂鸣器的亮灭组合。
+
+2）【实验2-2】 实现了简单的延时函数，在主循环while(1)中通过调用延时函数和GPIO输出函数实现了LED的闪烁或者通过调用延时和不同的LED亮灭组合，实现了LED向右的流水灯功能。请你再编写一个向左的流水灯实验，并且实现仅在LED1点亮时，蜂鸣器发声。
+
+3）【实验2-2】 实现了四个按键的GPIO读取功能，通过对IO的读取，获取按键值，做小都处理，点亮或熄灭LED。请你在此基础上实现“按键抬起检测”的功能，按键按下后，只有抬起后才点亮或熄灭对应LED。提示：检测到按键以后，再一直检测按键等待抬起，直到被抬起再进行下一步。

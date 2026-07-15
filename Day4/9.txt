@@ -1,0 +1,764 @@
+、实验介绍
+1. 实验目的
+
+• 理解触摸屏工作原理
+
+• 掌握XPT2046芯片原理与交互方法
+
+• 掌握SPI总线模拟实现方法
+
+• 掌握电阻触摸屏ADC数据转换的控制方法
+
+• 掌握XPT2046坐标转换方式
+
+2. 实验内容
+
+触摸屏是当前最常用的输入部件，常与LCD模块集成一起使用。AU100的LCD液晶屏上集成了XPT2046触摸屏控制芯片，内置ADC，并带有电阻屏。本实验通过此触摸屏实现LCD触摸点坐标值的获取和转换，通过本实验可深入了解触摸屏的工作原理，加深掌握SPI编程方法，掌握电阻触摸屏ADC数据读取、滤波及校正算法，实验内容主要如下：
+
+1） 触摸屏工程创建
+
+2） 触摸屏基础交互实现
+
+3） 触摸屏坐标读取实现
+
+4） 触摸屏测试示例实现
+
+3. 实验知识点
+
+• SPI总线协议
+
+• STM32官方库编程方法
+
+• SPI总线软件模拟方法
+
+• 触摸屏ADC工作原理
+
+• XPT2046交互命令
+
+• 触摸屏滤波与标正算法
+
+4. 实验时长
+
+共3学时，学时分配如下：
+
+• 触摸屏工程创建（0.5学时）
+
+• 触摸屏基础交互实现（1学时）
+
+• 触摸屏坐标读取实现（1学时）
+
+• 触摸屏测试示例实现（0.5学时）
+
+5. 实验环境
+
+• AU100开发板-STM32F407
+
+• Keil MDK 5.36
+
+• Keil.STM32F4xx_DFP.2.15.0
+
+• STM32F4xx_StdPeriph_Driver v1.81
+
+• Windows 10
+
+二、实验分析
+1） 触摸屏工程创建
+
+• 创建驱动文件
+
+• 添加调试串口
+
+2） 触摸屏基础交互实现
+
+• GPIO初始化
+
+• SPI信号控制
+
+• SPI读写实现
+
+• SPI读取ADC值实现
+
+3） 触摸屏坐标读取实现
+
+• 数值滤波
+
+• LCD坐标转换
+
+• 触摸事件检测
+
+4） 触摸屏测试示例实现
+
+• 创建主程序
+
+• 测试示例源码实现
+
+三、实验步骤
+触摸屏工程创建
+1） 创建驱动文件
+
+编写触摸屏模块驱动前，需首先创建工程目录，在Keil中创建相应驱动文件，以STM32工程模板为基础，添加相关文件，目录如图：
+
+
+
+图 1 触摸屏工程目录
+
+BSP目录主要有:
+
+xpt2046.h    //xpt2046对外接口头文件   
+xpt2046.c    //xpt2046触摸屏驱动实现源码
+usart.h        //调试串口UART2对外接口头文件
+usart.c        //调试串口UART2驱动实现源码
+xpt2046.h头文件定义触摸屏模块可对外提供的函数， 具体功能相关的定义在实验后续步骤中逐步添加，头文件内容如下：
+
+【代码7-1-1】BSP/xpt2046.h
+
+#ifndef __XPT2046_H__
+#define __XPT2046_H__
+#include "stm32f4xx.h"
+
+typedef struct{          //液晶坐标结构体
+   // 负数值表示无新数据
+   int16_t x;                   //记录最新的触摸参数值
+   int16_t y;
+
+   // 用于记录连续触摸时(长按)的上一次触摸位置
+   int16_t pre_x;
+   int16_t pre_y;
+} XPT2046_Coord;
+
+typedef struct{ //校准因子结构体
+  long double A;
+  long double B;
+  long double C;
+  long double D;
+  long double E;
+  long double F;
+} XPT2046_Factor;
+
+typedef enum {
+   XPT2046_STATE_RELEASE  = 0,
+   XPT2046_STATE_WAITING,
+   XPT2046_STATE_PRESSED,
+}enumTouchState;
+
+
+void    XPT2046_Init( void );
+uint8_t XPT2046_DetectTouch( void );
+int8_t XPT2046_GetTouchPoint(XPT2046_Coord *displayPtr);
+int8_t XPT2046_CalibrationFactor(XPT2046_Coord *pLCD, XPT2046_Coord *pTouch, XPT2046_Factor *pFactor);
+
+#endif /* __XPT2046_H__ */
+xpt2046.c模块为触摸屏模块的具体驱动文件，首先需定义一些全局量以方便功能实现，主要为头文件引用、 全局变量等内容，此处先做整体定义，相关具体作用后续步骤逐一说明。
+
+【代码7-1-2】BSP/xpt2046.c
+
+#include <stdio.h> 
+#include <string.h>
+#include "xpt2046.h"
+#include "delay.h"
+
+#define XPT2046_CHANNEL_X     0x90 //通道Y+的选择控制字
+#define XPT2046_CHANNEL_Y     0xd0 //通道X+的选择控制字
+
+#define TOUCH_PRESSED        1
+#define TOUCH_NOT_PRESSED    0
+
+#define XPT2046_PENIRQ_Active      0
+#define XPT2046_THRESHOLD_CalDiff  2  //校准触摸屏时触摸坐标的AD值相差门限
+#define DURIATION_TIME    2
+
+
+#define XPT2046_CS_ENABLE()    GPIO_ResetBits(GPIOD, GPIO_Pin_13)  
+#define XPT2046_CS_DISABLE()   GPIO_SetBits(GPIOD, GPIO_Pin_13 )
+
+#define XPT2046_CLK_HIGH()      GPIO_SetBits(GPIOE, GPIO_Pin_0 )    
+#define XPT2046_CLK_LOW()       GPIO_ResetBits(GPIOE, GPIO_Pin_0 ) 
+
+#define XPT2046_MOSI_1()       GPIO_SetBits(GPIOE,  GPIO_Pin_2 ) 
+#define XPT2046_MOSI_0()       GPIO_ResetBits( GPIOE, GPIO_Pin_2 )
+
+#define XPT2046_MISO()          GPIO_ReadInputDataBit(GPIOE, GPIO_Pin_3 )
+#define XPT2046_ReadIRQ()       GPIO_ReadInputDataBit(GPIOE, GPIO_Pin_4 )
+
+//微秒延时函数
+#define XPT2046_DelayUS(x)  delay_us(x)
+
+
+
+//当前使用的LCD扫描方式，需与LCD驱动的值一致
+int  LCD_SCAN_MODE = 0;
+/******************************* 定义 XPT2046 全局变量 ***************************/
+//默认触摸参数，不同的屏幕稍有差异，可重新调用触摸校准函数获取
+XPT2046_Factor TouchFactor[] = {     
+ -0.006464,   -0.073259,  280.358032,    0.074878,    0.002052,   -6.545977,//扫描方式0
+  0.086314,    0.001891,  -12.836658,   -0.003722,   -0.065799,  254.715714,//扫描方式1
+  0.002782,    0.061522,  -11.595689,    0.083393,    0.005159,  -15.650089,//扫描方式2
+  0.089743,   -0.000289,  -20.612209,   -0.001374,    0.064451,  -16.054003,//扫描方式3
+  0.000767,   -0.068258,  250.891769,   -0.085559,   -0.000195,  334.747650,//扫描方式4
+ -0.084744,    0.000047,  323.163147,   -0.002109,   -0.066371,  260.985809,//扫描方式5
+ -0.001848,    0.066984,  -12.807136,   -0.084858,   -0.000805,  333.395386,//扫描方式6
+ -0.085470,   -0.000876,  334.023163,   -0.003390,    0.064725,   -6.211169,//扫描方式7
+};
+2） 创建调试串口
+
+AU100使用UART2为调试串口，需先实现驱动文件。
+
+usart.h为STM32的UART2调试串口的接口头文件，内容如下：
+
+【代码7-1-3】BSP/usart.h
+
+#ifndef __USART_H__
+#define __USART_H__
+#include "stm32f4xx.h"
+
+void UART2_Init(u32 bound);
+
+#endif
+usart.c为STM32的UART2调试串口驱动实现源码，内容如下：
+
+【代码7-1-4】BSP/usart.c
+
+#include <stdio.h>
+#include "usart.h"     
+
+void UART2_Init(u32 bound)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+    
+    //使能GPIOA和USART1时钟
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE);  //GPIOA在AHB1高速总线上
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2,ENABLE); //USART2在APB1硬件总线上
+
+    //USART2 对应引脚复用映射
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF_USART2); 
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF_USART2); 
+    
+    //USART2 IO配置
+    GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_2 | GPIO_Pin_3; 
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;     //复用
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;//速度50MHz
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;   //推挽复用输出
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_UP;    
+    GPIO_Init(GPIOA,&GPIO_InitStructure);  
+    
+    //USART2 端口配置
+    USART_InitStructure.USART_BaudRate = bound;  //波特率设置
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;  //字长8bit
+    USART_InitStructure.USART_StopBits   = USART_StopBits_1;       //1停止位
+    USART_InitStructure.USART_Parity     = USART_Parity_No;          //无校验
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;//无硬件数据流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;    //收发
+    USART_Init(USART2, &USART_InitStructure); 
+    
+    NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;         //USART2中断向量
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 3; //抢占优先级3
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;          //子优先级3
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;              //IRQ通道使能
+    NVIC_Init( &NVIC_InitStructure );    
+    
+    USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//开中断
+    USART_Cmd(USART2, ENABLE);  //使能串口2 
+}
+
+
+/*
+发送一个字符 
+*/
+void UART_SendByte( USART_TypeDef * pUSARTx, uint8_t ch)
+{
+    //发送一个字节数据到USART
+    USART_SendData(pUSARTx, ch);
+        
+    //等待发送数据寄存器为空
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+/*
+发送字符串
+*/
+void UART_SendString( USART_TypeDef * pUSARTx, char *str)
+{
+    unsigned int k=0;
+    do {
+      UART_SendByte( pUSARTx, *(str + k) );
+      k++;
+    } while(*(str + k)!='\0');
+  
+  //等待发送完成
+  while(USART_GetFlagStatus(pUSARTx,USART_FLAG_TC)==RESET){}
+}
+
+/*****************  发送一个16位数 **********************/
+void UART_SendHalfWord( USART_TypeDef * pUSARTx, uint16_t ch)
+{
+    uint8_t temp_h, temp_l;    
+    temp_h = (ch&0XFF00)>>8;      /* 取出高八位 */
+    temp_l = ch&0XFF;      /* 取出低八位 */
+    
+    USART_SendData(pUSARTx,temp_h);         /* 发送高八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+    
+    USART_SendData(pUSARTx,temp_l);         /* 发送低八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+//重定向c库函数printf到串口，重定向后可使用printf函数
+int fputc(int ch, FILE *f)
+{
+    // 发送一个字节数据到串口
+    USART_SendData(USART2, (uint8_t) ch);
+        
+    // 等待发送完毕
+    while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);        
+
+    return (ch);
+}
+
+//重定向c库函数scanf到串口，重写向后可使用scanf、getchar等函数
+int fgetc(FILE *f){
+    // 等待串口输入数据
+    while (USART_GetFlagStatus(USART2, USART_FLAG_RXNE) == RESET);
+    return (int)USART_ReceiveData(USART2);
+}
+
+
+/*
+串口2中断处理函数  
+*/
+void USART2_IRQHandler( void ){
+    u8 sbuf = 0;
+  
+    //接收中断服务函数
+    if(USART_GetFlagStatus(USART2, USART_FLAG_RXNE)) {
+        sbuf = USART_ReceiveData(USART2);//收到一个字节
+        USART_SendData(USART2, sbuf);    //回显转发回去
+    }
+}
+触摸屏基础交互实现
+1） GPIO初始化
+
+XPT2046使用GPIO模拟SPI总线，首先需实现对各引脚的参数配置，XPT2046配置有CS片选信号，初始化时需使能CS。IRQ信号配置为输入模式，当前不使用中断，只使用轮循检测电平高低。实现如下：
+
+【代码7-2-1】BSP/xpt2046.c
+
+/**
+  * @brief  XPT2046 初始化函数
+  * @param  无
+  * @retval 无
+  */    
+void XPT2046_Init( void ){
+  GPIO_InitTypeDef  GPIO_InitStructure;
+
+  //开启GPIO时钟
+  RCC_AHB1PeriphClockCmd( RCC_AHB1Periph_GPIOD | RCC_AHB1Periph_GPIOE, ENABLE );
+
+  //SPI CLK          
+  GPIO_InitStructure.GPIO_Pin    = GPIO_Pin_0;
+  GPIO_InitStructure.GPIO_Speed  = GPIO_Speed_25MHz ;      
+  GPIO_InitStructure.GPIO_Mode   = GPIO_Mode_OUT;
+  GPIO_InitStructure.GPIO_OType  = GPIO_OType_PP;
+  GPIO_InitStructure.GPIO_PuPd   = GPIO_PuPd_NOPULL;
+  GPIO_Init(GPIOE, &GPIO_InitStructure);
+
+  //SPI MOSI
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2;
+  GPIO_Init(GPIOE, &GPIO_InitStructure);
+
+  //SPI CS
+  GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_13; 
+  GPIO_Init(GPIOD, &GPIO_InitStructure); 
+
+  //MISO
+  GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_3; 
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz ;
+  GPIO_InitStructure.GPIO_Mode  = GPIO_Mode_IN;  
+  //GPIO_InitStructure.GPIO_OType  = GPIO_OType_OD;
+  GPIO_InitStructure.GPIO_PuPd   = GPIO_PuPd_UP;
+  GPIO_Init(GPIOE, &GPIO_InitStructure);
+
+  //IRQ
+  GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_4;       
+  GPIO_InitStructure.GPIO_Mode  = GPIO_Mode_IN;     // 上拉输入
+  //GPIO_InitStructure.GPIO_OType = GPIO_OType_OD;
+  GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_UP;  
+  GPIO_Init(GPIOE, &GPIO_InitStructure);    
+
+  //拉低片选，选择XPT2046
+  XPT2046_CS_ENABLE();
+}
+
+2） SPI信号控制
+
+触摸屏使用SPI总线进行数据交互，但并没有使用专用的SPI总线，需要使用GPIO进行模似，首先需实现接口信号的电平控制，使用GPIO驱动接口即可，SPI接口在初始化时先不使用CS信号，代码如下:
+
+【代码7-2-2】BSP/xpt2046.c
+
+
+
+#define XPT2046_CS_ENABLE()    GPIO_ResetBits(GPIOD, GPIO_Pin_13)  
+#define XPT2046_CS_DISABLE()   GPIO_SetBits(GPIOD, GPIO_Pin_13 )
+
+#define XPT2046_CLK_HIGH()      GPIO_SetBits(GPIOE, GPIO_Pin_0 )    
+#define XPT2046_CLK_LOW()       GPIO_ResetBits(GPIOE, GPIO_Pin_0 ) 
+
+#define XPT2046_MOSI_1()       GPIO_SetBits(GPIOE,  GPIO_Pin_2 ) 
+#define XPT2046_MOSI_0()       GPIO_ResetBits( GPIOE, GPIO_Pin_2 )
+
+#define XPT2046_MISO()          GPIO_ReadInputDataBit(GPIOE, GPIO_Pin_3 )
+#define XPT2046_ReadIRQ()       GPIO_ReadInputDataBit(GPIOE, GPIO_Pin_4 )
+3） SPI读写实现
+
+XPT2046使用SPI接口交互，每次数据读取都需先写入命令，命令为1字节，只需控制SPI时钟，只需按位依次输出即可。XPT2046接收到命令后，会回复ADC采集数据，控制CLK时钟，按位依次接收即可：
+
+【代码7-2-3】BSP/xpt2046.c
+
+/**
+  * @brief  XPT2046 的写入命令
+  * @param  ucCmd ：命令
+  *   该参数为以下值之一：
+  *     @arg 0x90 :通道Y+的选择控制字
+  *     @arg 0xd0 :通道X+的选择控制字
+  * @retval 无
+  */
+static void XPT2046_WriteCMD( uint8_t ucCmd ) {
+    uint8_t i = 0;
+
+    XPT2046_MOSI_0();
+    XPT2046_CLK_LOW();
+
+    for(i = 0; i < 8; i ++){
+     ((ucCmd >> ( 7 - i)) & 0x01)?XPT2046_MOSI_1() : XPT2046_MOSI_0();    
+      XPT2046_DelayUS(5);
+      XPT2046_CLK_HIGH();
+      XPT2046_DelayUS ( 5 );
+      XPT2046_CLK_LOW();
+    }
+}
+
+
+/**
+  * @brief  XPT2046 的读取命令
+  * @param  无
+  * @retval 读取到的数据
+  */
+static uint16_t XPT2046_ReadCMD ( void ) {
+    uint8_t i;
+    uint16_t usBuf=0, usTemp;
+    
+    XPT2046_MOSI_0();
+    XPT2046_CLK_HIGH();
+
+    for ( i=0;i<12;i++ ) {
+        XPT2046_CLK_LOW();    
+        usTemp = XPT2046_MISO();
+        usBuf |= usTemp << ( 11 - i );
+        XPT2046_CLK_HIGH();
+    }
+    return usBuf;
+}
+4） SPI读取ADC值实现
+
+XPT2046中读取数据时，只需先使用SPI中写入命令指定通道，再读取回复数据，X与Y轴都需分别如此读取。不同在于：读取X轴的命令字为0xd0，Y轴为0x90
+
+【代码7-2-4】BSP/xpt2046.c
+
+/**
+  * @brief  对 XPT2046 选择一个模拟通道后，启动ADC，并返回ADC采样结果
+  * @param  ucChannel
+  *   该参数为以下值之一：
+  *     @arg 0x90 :通道Y+的选择控制字
+  *     @arg 0xd0 :通道X+的选择控制字
+  * @retval 该通道的ADC采样结果
+  */
+static uint16_t XPT2046_ReadAdc( uint8_t ucChannel ){
+  XPT2046_WriteCMD( ucChannel );
+  return  XPT2046_ReadCMD();
+}
+
+
+/**
+  * @brief  读取 XPT2046 的X通道和Y通道的AD值（12 bit，最大是4096）
+  * @param  sX_Ad ：存放X通道AD值的地址
+  * @param  sY_Ad ：存放Y通道AD值的地址
+  * @retval 无
+  */
+static void XPT2046_ReadAdcXY(uint16_t *sX_Ad, uint16_t *sY_Ad)  {
+    *sX_Ad = XPT2046_ReadAdc( XPT2046_CHANNEL_X );
+    XPT2046_DelayUS( 1 );
+    *sY_Ad = XPT2046_ReadAdc( XPT2046_CHANNEL_Y );
+}
+触摸屏坐标读取实现
+1） 数值滤波
+
+XPT2046数模转换读取X、Y值会有干扰波动，为了取得相对准确的值，应取多组数据用滤波算法取得稳定值。滤波算法有多种，复杂算法得到更准确的值，但计算较慢，简单算法精确稍差但速度快，可根据需要不同选择。本实验采用简单算法，取十组数据，去掉最大最小值，其余取平均值。具体如下：
+
+【代码7-3-1】BSP/xpt2046.c
+
+static int8_t XPT2046_FilterXY( XPT2046_Coord *pCoord ){
+    uint8_t ucCount = 0, i = 0;
+    uint16_t value = 0;
+    uint16_t tempAD_X, tempAD_Y = 0;  //X，Y的临时值
+    uint16_t sBufferArray[2][10] = { { 0 },{ 0 } };  //坐标X和Y进行多次采样
+    uint32_t lX_Min, lX_Max, lY_Min, lY_Max = 0;    //存储采样中的最小值、最大值
+
+    do{// 循环采样10次
+        XPT2046_ReadAdcXY( &tempAD_X, &tempAD_Y );
+        sBufferArray[0][ucCount] = tempAD_X;
+        sBufferArray[1][ucCount] = tempAD_Y;
+
+        ucCount ++;
+        value = XPT2046_ReadIRQ();
+    }while( (value == XPT2046_PENIRQ_Active ) && ( ucCount < 10 ) );
+
+
+    if( ucCount < 10 )    {    // 未采样10个样本，无效不做处理
+        return -1;
+    }
+
+    lX_Max = lX_Min = sBufferArray[0][0];
+    lY_Max = lY_Min = sBufferArray[1][0];
+    tempAD_X = sBufferArray[0][0]; //用于求和，XPT2046为ADC为12位,tempAD_X/Y为16位，保存10次和不会溢出
+    tempAD_Y = sBufferArray[1][0];
+    //找出X轴最小最大值
+    for ( i = 1; i < 10; i ++ ){
+        if ( sBufferArray[0][i] < lX_Min ){
+            lX_Min = sBufferArray[0][i];
+        }
+        else if (sBufferArray[0][i] > lX_Max ){
+            lX_Max = sBufferArray[0][i];
+        }
+
+        tempAD_X += sBufferArray[0][i];
+    }
+
+    //找出Y轴最小最大值
+    for ( i = 1; i < 10; i ++ ){
+        if ( sBufferArray[1][i] < lY_Min ){
+            lY_Min = sBufferArray[1][i];
+        }
+        else if ( sBufferArray[1][i] > lY_Max ){
+            lY_Max = sBufferArray[1][i];
+        }
+
+        tempAD_Y += sBufferArray[1][i];
+    }
+
+    // 去除最小值和最大值之后求平均值
+    pCoord->x = (tempAD_X - lX_Min - lX_Max) >> 3;
+    pCoord->y = (tempAD_Y - lY_Min - lY_Max) >> 3;
+
+    return 0;
+}
+2） LCD坐标转换
+
+读取触摸点的坐标需先使用滤波函数获取电压准确值，然后再使用校准公式将数值变换为LCD坐标。触摸屏的校准公式有多种，本实验使用三点校准法，其公式为：
+
+XL0 = AX0 + BY0 + C
+XL1 = Aa + BY1 + C
+XL2 = AX1 + BY2 + C
+YL0 = DX0 + EY0 + F
+YL1 = Da + EY1 + F
+YL2 = DX1 + EY2 + F
+其中A、B、C、D、E、F都为校准参数，这些参数是由触摸屏校准时计算而得，本实验所使用的LCD在出厂时官方给出了相应的校准参数，如下：
+
+【代码7-3-2】BSP/xpt2046.c（全局量已定义，此段不需要添加进代码）
+
+/******************************* 定义 XPT2046 全局变量 ***************************/
+//默认触摸参数，不同的屏幕稍有差异，可重新调用触摸校准函数获取
+XPT2046_Factor TouchFactor[] = {
+ -0.006464,   -0.073259,  280.358032,    0.074878,    0.002052,   -6.545977,//扫描方式0
+  0.086314,    0.001891,  -12.836658,   -0.003722,   -0.065799,  254.715714,//扫描方式1
+  0.002782,    0.061522,  -11.595689,    0.083393,    0.005159,  -15.650089,//扫描方式2
+  0.089743,   -0.000289,  -20.612209,   -0.001374,    0.064451,  -16.054003,//扫描方式3
+  0.000767,   -0.068258,  250.891769,   -0.085559,   -0.000195,  334.747650,//扫描方式4
+ -0.084744,    0.000047,  323.163147,   -0.002109,   -0.066371,  260.985809,//扫描方式5
+ -0.001848,    0.066984,  -12.807136,   -0.084858,   -0.000805,  333.395386,//扫描方式6
+ -0.085470,   -0.000876,  334.023163,   -0.003390,    0.064725,   -6.211169,//扫描方式7
+};
+说明：之所以有多组参数，是因为LCD有多种扫描模式，每种扫描模式都对应一组校准参数，应使用当前模式对应的校准参数进行换算。
+
+由以上公式和校准参数，即可根据ADC值推导出LCD触摸点坐标，实现源码如下：
+
+【代码7-3-3】BSP/xpt2046.c
+
+/**
+  * @brief  获取 XPT2046 触摸点（校准后）的坐标
+  * @param  pLCD ：该指针存放获取到的触摸点坐标
+  */
+int8_t XPT2046_GetTouchPoint(XPT2046_Coord *pLCD ){
+    XPT2046_Coord adcCoord;
+
+    if( XPT2046_FilterXY( &adcCoord ) < 0 ){ return -1; }
+
+    // XL = AX + BY + C
+    pLCD->x = TouchFactor[LCD_SCAN_MODE].A * adcCoord.x +
+              TouchFactor[LCD_SCAN_MODE].B * adcCoord.y +
+              TouchFactor[LCD_SCAN_MODE].C ;
+
+    // YL = DX + EY + F;
+    pLCD->y = TouchFactor[LCD_SCAN_MODE].D * adcCoord.x +
+              TouchFactor[LCD_SCAN_MODE].E * adcCoord.y +
+              TouchFactor[LCD_SCAN_MODE].F ;
+    return 0;
+}
+
+//触摸屏按下时的调用函数
+/**
+  * @brief   触摸屏被按下的时候会调用本函数
+  * @param  touch包含触摸坐标的结构体
+  * @note  请在本函数中编写自己的触摸按下处理应用
+  * @retval 无
+  */
+__weak void XPT2046_TouchDown(XPT2046_Coord *touch){
+    printf("TouchDown,x:%d,y:%d\r\n", touch->x, touch->y);
+}
+
+/**
+  * @brief   触摸屏释放的时候会调用本函数
+  * @param  touch包含触摸坐标的结构体
+  * @note  请在本函数中编写自己的触摸释放处理应用
+  * @retval 无
+  */
+__weak void XPT2046_TouchUp(XPT2046_Coord *touch) {
+    printf("TouchUp,x:%d,y:%d\r\n", touch->x, touch->y);
+}
+3） 触摸事件检测
+
+触摸屏坐标数据应在检测到触摸事件之后再读取，触摸屏有手指触摸时中断引脚PIN_IRQ电平会变化，只需检测PIN_IRQ电平即可判断是否有触摸，触摸屏检测到触摸动作时，需经过去抖处理，持续一定时间才判定为真正触摸，否则为无效动作，触摸动作有效时，可使用获读点坐标函数获取坐标点，触摸屏有效动作为分：触摸按下与触摸抬起两种状态，可分别调用不同函数做处理。
+
+【代码7-3-4】BSP/xpt2046.c
+
+/**
+  * @brief  触摸屏检测状态机
+  * @retval 触摸状态
+    *   该返回值为以下值之一：
+  *     @arg TOUCH_PRESSED :触摸按下
+  *     @arg TOUCH_NOT_PRESSED :无触摸
+  */
+uint8_t XPT2046_DetectTouch(void){
+    uint8_t detectResult = TOUCH_NOT_PRESSED;
+    uint16_t value = 0;
+    static uint32_t i = 0;
+    static  enumTouchState touch_state = XPT2046_STATE_RELEASE;
+    static XPT2046_Coord cinfo = {-1,-1,-1,-1};
+
+    value = XPT2046_ReadIRQ();
+    switch( touch_state ){
+        case XPT2046_STATE_RELEASE:
+            if(value == XPT2046_PENIRQ_Active){ //第一次出现触摸信号
+                touch_state  = XPT2046_STATE_WAITING;
+                detectResult = TOUCH_NOT_PRESSED;
+            }
+            else {    //无触摸
+                touch_state  = XPT2046_STATE_RELEASE;
+                detectResult = TOUCH_NOT_PRESSED;
+            }
+            break;
+        case XPT2046_STATE_WAITING:
+            if(value == XPT2046_PENIRQ_Active){
+                i++;
+                //等待时间大于阈值则认为触摸被按下
+                //消抖时间 = DURIATION_TIME * 本函数被调用的时间间隔
+                //如在定时器中调用，每10ms调用一次，则消抖时间为：DURIATION_TIME*10ms
+                if(i > DURIATION_TIME){
+                    i = 0;
+                    touch_state  = XPT2046_STATE_PRESSED;
+                    detectResult = TOUCH_PRESSED;
+                }
+                else {//等待时间累加
+                    touch_state  = XPT2046_STATE_WAITING;
+                    detectResult = TOUCH_NOT_PRESSED;
+                }
+            }
+            else {    //等待时间值未达到阈值就为无效电平，当成抖动处理
+                i = 0;
+                touch_state  = XPT2046_STATE_RELEASE;
+                detectResult = TOUCH_NOT_PRESSED;
+            }
+            break;
+
+        case XPT2046_STATE_PRESSED:
+            if(value == XPT2046_PENIRQ_Active){        //触摸持续按下
+                touch_state  = XPT2046_STATE_PRESSED;
+                detectResult = TOUCH_PRESSED;
+            }
+            else {//触摸释放
+                touch_state  = XPT2046_STATE_RELEASE;
+                detectResult = TOUCH_NOT_PRESSED;
+            }
+            break;
+        default:
+            touch_state  = XPT2046_STATE_RELEASE;
+            detectResult = TOUCH_NOT_PRESSED;
+            break;
+    }
+
+    if(detectResult == TOUCH_PRESSED){
+        if(XPT2046_GetTouchPoint( &cinfo ) < 0){ //获取触摸坐标
+            return detectResult;
+        }
+
+        XPT2046_TouchDown( &cinfo );
+
+        cinfo.pre_x = cinfo.x;
+        cinfo.pre_y = cinfo.y;
+    }
+    else {
+        // 为负表示不需处理
+        if(cinfo.pre_x == -1 && cinfo.pre_x == -1){
+            return detectResult;
+        }
+
+        //调用触摸被释放时的处理函数，可在该函数编写自己的触摸释放处理过程
+        XPT2046_TouchUp( &cinfo );
+
+        //触笔释放，把 xy 重置为负
+        cinfo.x = -1;
+        cinfo.y = -1;
+        cinfo.pre_x = -1;
+        cinfo.pre_y = -1;
+    }
+
+    return detectResult;
+}
+触摸屏测试示例实现
+1） 创建主程序
+
+触摸屏驱动完成后，需在主程序main.c中编写测试代码，先为主程序创建相关头文件和全局量，以便后续使用，源码如下：
+
+【代码7-4-1】USER/main.c
+
+#include <stdio.h>
+#include "stm32f4xx.h"
+#include "xpt2046.h"
+#include "usart.h"
+#include "delay.h"
+2） 测试示例源码实现
+
+触摸屏的检测只需初始化后调用检测函数不断轮询即可，检测到触摸点则读取触摸点坐标，逻辑如代码所示：
+
+【代码7-4-2】USER/main.c
+
+/**
+  * @brief  主函数
+  * @param  无
+  * @retval 无
+  */
+int main(void) {
+    UART2_Init(115200);   //调试串口，方便打印
+    
+    XPT2046_Init();
+    printf("XPT2046 TEST\r\n"); 
+    
+    while(1){
+        XPT2046_DetectTouch();
+        delay_ms(50);//延时
+    }
+}
+四、实验结果
+程序编译烧写运行后，用手指在触摸屏上点击然后抬起，串口可输出触摸点的对应坐标，并显示按下与抬起两种状态，如下图所示：
+
+XPT执行结果
+

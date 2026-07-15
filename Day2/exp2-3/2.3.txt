@@ -1,0 +1,254 @@
+一、实验介绍
+1. 实验目的
+
+• 了解 中断和异常的概念
+
+• 理解 外部中断/事件控制器的主要特性
+
+• 理解 STM32F407外部中断/事件线的功能映射
+
+• 掌握 STM32F407外部中断读取按键
+
+• 掌握 STM32F407外部中断编写流程
+
+2. 实验内容
+
+在LED流水灯实验的基础上，编写基于按键的外部中断相关程序，初始化并开启中断，通过按键电平触发外部中断的服务函数，改变时间变量的值，从而改变LED流水灯的闪烁频率。程序实现了在主程序外操作变量的功能，表明中断函数时独立于主函数的。
+
+3. 实验知识点
+
+• 中断和异常的概念
+
+• 外部中断的原理和配置方式
+
+• ST固件库的外部中断的编写流程
+
+• 中断和主函数通过变量交互的过程
+
+4. 实验时长
+
+共2学时，学时分配如下：
+
+• 编写按键中断初始化（ 1学时）
+
+• 中断服务函数和LED流水灯（ 1 学时）
+
+5. 实验环境
+
+• Windows 10 操作系统；
+
+• MDK 5.25
+
+• 青软 遨游100开发板（QST-AU100）
+
+• ST固件库：STM32F4xx_DSP_StdPeriph_Lib_V1.4.0
+
+二、实验分析
+1) STM32F407中断的定义和用途
+
+2) 实验的主要内容和电路结构
+
+3) 实验的编写流程
+
+a) 初始化LED
+
+b) 参考实验2，先编写LED流水灯实验
+
+c) 修改LED切换的时间值为一个变量
+
+d) 开启GPIO和SYSCFG的时钟
+
+e) 初始化按键所在的GPIO为上拉输入状态
+
+f) 设置SYSCFG_EXTILineConfig连接GPIO到相应的中断线上
+
+g) 配置外部中断线为中断模式（EXTI_Mode_Interrupt）
+
+h) 配置外部中断线边沿模式为下降沿（EXTI_Trigger_Falling）
+
+i) 初始化并使能外部中断
+
+j) 配置NVIC中的向量
+
+k) 配置NVIC中的优先级
+
+l) 初始化并使能NVIC
+
+m) 编写中断服务函数
+
+三、实验步骤
+STM32F407中断的定义和用途
+处理器在程序运行时，收到了比自身高优先级的请求，或者是程序达到了人为设置了中断条件才发生的状况，停止当前正在运行的程序而转到其他的程序或者其它的服务中去，完成以后，再返回当前程序继续运行。中断的用途一般是用于：GPIO收到外部中断信号电平、定时器溢出、通信接口收到了数据ADC、DMA等片上外设达到了设定的中断条件时，需要及时对其进行处理的情况。中断的程序是独立的，由处理器负责调用，应当简短高效，以免影响主程序的运行。
+
+实验的主要内容和电路结构
+本实验通过编写程序开启STM32F407的外部中断功能，通过外部中断程序，读取按键（PA0），在主函数以外，实现对LED流水速度的控制。在青软遨游100开发板上，有四个独立按键，分别连接到了四个GPIO（PA0，PC13，PC6，PC7）。电路结构如图：
+
+
+如图所示，所有的按键左侧都是通过上拉电阻连接到了电源3.3V（高电平），右侧接地（低电平），当按下一个按键时，根据逻辑数字电路（1 & 0 = 0）的原则，对应的GPIO的电平就跳变为0，按键抬起时，跳变为1。
+
+实验的编写流程
+根据这一特性，本实验的外部中断要检测的信号“按下”，就是GPIO输入电平由高电平跳变为低电平的过程，叫做“下降沿”（EXTI_Trigger_Falling），是边沿信号的一种。下降沿的信号到来，就是可能的按键按下信号。
+
+具体流程如下：
+
+初始化LED1-3（参考实验二）
+参考实验2，先编写LED流水灯实验（延时500毫秒）
+修改LED切换的时间值为一个变量（初始化也是500）
+开启GPIO和SYSCFG的时钟
+初始化按键所在的GPIO为上拉输入状态
+设置SYSCFG_EXTILineConfig连接GPIO到相应的中断线上
+配置外部中断线为中断模式（EXTI_Mode_Interrupt）
+配置外部中断线边沿模式为下降沿（EXTI_Trigger_Falling）
+初始化并使能外部中断
+配置NVIC中的向量
+配置NVIC中的优先级
+初始化并使能NVIC
+编写中断服务函数，函数首先清除中断标志位，再改变LED流水延时的时间值为100（加快速度5倍）
+开发板的连接参照上个实验。
+
+首先需要拷贝单独一份实验一生成的工程模版文件夹，修改名为“【实验3-1】外部中断”在main.c文件中添加各种所需的结构体变量、时间变量（在main函数之前）：
+
+/*定义GPIO、EXTI、NVIC初始化用到的结构体变量*/
+GPIO_InitTypeDef   GPIO_InitStructure;
+NVIC_InitTypeDef   NVIC_InitStructure;
+EXTI_InitTypeDef   EXTI_InitStructure;
+
+/*定义一个时间变量用于LED闪烁流水*/
+u16 LedTime = 500;
+
+/* 函数声明 */
+void delay_us(uint16_t nus);
+void delay_ms(u16 nms);
+      编写LED流水灯部分，参照实验二。流水灯的延时用一个变量代替：
+
+/*定义一个时间变量用于LED闪烁流水*/
+u16 LedTime = 500;
+同样要编写和声明延时函数：
+
+/* 函数声明 */
+void delay_us(uint16_t nus);
+void delay_ms(u16 nms);
+
+/***** 简单延时函数,ms,us  *****/
+void delay_us(uint16_t nus)
+{
+    uint16_t i;
+    while(nus--)
+    {
+        i = 31;   
+        while(i--);
+    }
+}
+
+void delay_ms(u16 nms)
+{
+    uint16_t i;
+    while(nms--)
+    {
+        i = 33800; 
+        while(i--);
+    }
+}
+      3个LED的初始化部分：
+
+/*初始化三个LED的GPIO*/
+/*开启 GPIOB 的时钟，才能使用 GPIOB*/
+RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB,ENABLE );//在AHB1上开启GPIOB的时钟
+
+/*配置三个LED所在的GPIO（PB5、PB0、PB1）*/
+GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5 | GPIO_Pin_0 | GPIO_Pin_1; //要初始化的引脚号（PB5、PB0、PB1）
+GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT; //GPIO设置为输出模式
+GPIO_InitStructure.GPIO_OType = GPIO_OType_PP; //GPIO设置为推挽模式
+GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz; //速度设置为25MHz
+GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL; //没有上拉下拉电阻
+/*使用上面配置的GPIO_InitStructure数据，初始化GPIOB*/
+GPIO_Init( GPIOB,  &GPIO_InitStructure );//初始化GPIOB
+    LED流水灯循环功能部分：
+
+/*主循环中是LED的流水灯，流水速度是根据变量LedTime进行*/
+/*LedTime变量初始化时500，如果中断中改变其值，流水速度就会变化*/
+while(1)
+{
+    GPIO_ResetBits(GPIOB, GPIO_Pin_5); //点亮LED1
+    GPIO_SetBits(GPIOB, GPIO_Pin_0 | GPIO_Pin_1); //熄灭LED2，3
+
+    delay_ms(LedTime); //可变延时
+        
+    GPIO_ResetBits(GPIOB, GPIO_Pin_0); //点亮LED2
+    GPIO_SetBits(GPIOB, GPIO_Pin_5 | GPIO_Pin_1); //熄灭LED1，3
+
+    delay_ms(LedTime); //可变延时
+        
+    GPIO_ResetBits(GPIOB, GPIO_Pin_1); //点亮LED3
+    GPIO_SetBits(GPIOB, GPIO_Pin_5 | GPIO_Pin_0); //熄灭LED1，2
+
+    delay_ms(LedTime); //可变延时
+}
+以上实现了三个LED的流水，延时时间受变量控制，下面开始编写外部中断部分，在外部中断的服务函数中，可以改变LED流水灯的时间变量从而改变LED的流水速度。
+
+      外部中断EXTI和NVIC的初始化：
+
+/*初始化KEY1 PA0*/  
+RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);//开启GPIOA的时钟
+RCC_APB2PeriphClockCmd(RCC_APB2Periph_SYSCFG, ENABLE);//开启SYSCFG的时钟
+
+GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0; //选择PA0
+GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN; //输入模式
+GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;  //25MHz速度
+GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP; //上拉电阻
+GPIO_Init(GPIOA, &GPIO_InitStructure);  //使用上述数据初始化PA0
+
+SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOA,EXTI_PinSource0);//PA0连接到中断线0
+
+/* 配置EXTI_Line0 */
+EXTI_InitStructure.EXTI_Line = EXTI_Line0; //选择中断线0
+EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt; //中断模式
+EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Falling;//下降沿触发 
+EXTI_InitStructure.EXTI_LineCmd = ENABLE; //使能中断线
+EXTI_Init(&EXTI_InitStructure); //使用上述数据初始化EXTI
+
+NVIC_InitStructure.NVIC_IRQChannel = EXTI0_IRQn; //设置中断向量
+NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x00;//抢占优先级0
+NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x02; //响应优先级2
+NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //开启使能
+NVIC_Init(&NVIC_InitStructure); //初始化NVIC
+中断服务函数
+
+//外部中断0服务程序
+void EXTI0_IRQHandler(void)
+{
+    EXTI_ClearITPendingBit(EXTI_Line0); //清除LINE0上的中断标志位 
+    LedTime = 100;//改变LED流水的时间（5倍速）
+}
+四、实验结果
+实验结果：本实验开启了开发板的按键所对应的外部中断功能（STM32的EXTI0线），实现了外部中断触发的变量改变功能。主函数的循环中，LED流水灯的速度因变量的改变而加速，充分体现了中断服务函数独立于主函数的特点。在实际工程项目的开发中，特别是工业现场控制、通信控制等项目，对时序控制特别严格的环境，中断的作用非常大！务必了解并掌握中断的编写流程，后面的其他实验中，还有关于其它中断功能的应用。实验中实现了按下按键1（PA0）加快流水灯速度（100毫秒），请你在这基础上增加一个功能：按下按键2（PC13）减慢流水速度（1000毫秒）。
+
+参考代码：
+
+RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC, ENABLE); 
+
+GPIO_InitStructure.GPIO_Pin = GPIO_Pin_13;
+GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;  
+GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;  
+GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP; 
+GPIO_Init(GPIOC, &GPIO_InitStructure);  
+SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOC, EXTI_PinSource13);
+    
+EXTI_InitStructure.EXTI_Line = EXTI_Line13;
+EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt; 
+EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Falling; 
+EXTI_InitStructure.EXTI_LineCmd = ENABLE; 
+EXTI_Init(&EXTI_InitStructure); 
+    
+NVIC_InitStructure.NVIC_IRQChannel = EXTI15_10_IRQn; 
+NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x00;
+NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x02; 
+NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; 
+NVIC_Init(&NVIC_InitStructure);
+ 
+
+void EXTI15_10_IRQHandler(void)
+{
+    EXTI_ClearITPendingBit(EXTI_Line13); 
+    LedTime = 1000;
+}    

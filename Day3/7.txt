@@ -1,0 +1,202 @@
+一、实验介绍
+1. 实验目的
+
+• 了解 DMA的特点和优势
+
+• 理解 DMA的STM32F407 DMA 的结构
+
+• 掌握 DMA程序设计思路（串口）
+
+• 掌握 串口的DMA发送程序的编写
+
+2. 实验内容
+
+初始化和使用DMA通道，通过DMA转移数据，以实现不用主函数和CPU参与的串口2（USART2）数据发送。
+
+3. 实验知识点
+
+• DMA的特点和优势
+
+• DMA的结构图
+
+• DMA的固件库配置方法
+
+• DMA用于串口发送时的参数选择
+
+• 串口的DMA发送程序的编写
+
+4. 实验时长
+
+2学时
+
+5. 实验环境
+
+• Windows 10 操作系统；
+
+• MDK 5.25和ST固件库
+
+• 青软 遨游100开发板（QST-AU100）
+
+• 串口调试工具
+
+二、实验分析
+一、什么是DMA，为什么要用DMA？
+
+DMA(Direct Memory Access，直接存储器访问)，顾名思义，它可以直接访问存储器，而不经过 CPU 和寄存器的中转，它可以在不经过CPU干预的前提下灵活的对各种存储器和外设之间进行数据传输，数据方向可以是存储器到外设、外设到存储器、存储器到存储器。DMA 是所有现代电脑、嵌入式MCU、高级单片机系统的重要组成部分，它允许不同速度的硬件装置互相沟通数据，而不需要依靠CPU 的中转。例如：在 PC 计算机上把文件拷贝到移动硬盘中这个操作，就是通过 DMA 通道来完成的， CPU 只下命令和对过程进行监控。
+
+为什么要用DMA? 串口数据发送的效率问题，串口通讯是一种数据传输行为，在 STM32F407 中，由对应的收发外设（收发器硬件）进行收发，但是外设能做到仅仅是以单个字节为单位的收发操作，如果要发出（或接收）一帧数据，需要进行数据帧的操作，也就是必须把一帧数据字节一个一个的按照一定的速度送进发送器中，一般是在程序中送进一个字节、等待发送完成、再次送进一个字节…… 这个等待过程相对于 MCU 的内核 CPU 的高速运行来讲是一个极其“漫长”的过程，而这个过程 CPU 什么都不能干，效率很低。串口通讯的效率问题可以通过中断、DMA 的方式来解决。如果给串口开启 DMA 通道，把要发送的数据预先放在内存（数组）里，开启 DMA 传输指令，DMA 就会按照时序自动的把数据依次送进串口的发送器中，这个过程不需要用户程序或 CPU 来干预，CPU 可以做其他的事情，提高了效率和可靠性。
+
+不使用DMA时的数据流向图：
+
+
+使用DMA时的数据流向图：
+
+
+    二、DMA的结构
+
+STM32F407 DMA 结构框图：
+
+
+ 
+
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+三、实验步骤
+STM32F407 DMA控制器软件设计思路
+1、初始化串口2（USART2）用作数据输出（配置参考 USART 章节）
+
+2、开启串口2 （USART2）的 DMA 发送/接收功能
+
+3、开启 DMA1 时钟（ USART2 TX 对应数据流在 DMA1 上）
+
+4、配置 USART2 对应的 DMA 数据流 （DMA1_Stream6）
+
+5、选择 DMA1 数据通道
+
+6、配置 DMA1 的通道、外设地址、存储器地址、数据方向、数量和递增要求
+
+7、配置 DMA1 其他的参数
+
+8、初始化 DMA1（DMA1_Stream6）
+
+9、启动 DMA 发送数据到串口2，电脑端接收到数据
+
+程序首先要包含头文件stm32f4xx.h，以及包含简单延时的头文件：
+
+#include "stm32f4xx.h"
+#include "delay.h"     //简单延时
+延时函数参数通过调试得出（delay.h文件中）：
+
+/*****  简单延时函数,ms,us  *****/
+void delay_us(uint16_t nus)
+{
+    uint16_t i;
+    while(nus--)
+    {
+        i = 31;         //秒表1分钟测试31
+        while(i--);
+    }
+}
+
+void delay_ms(u16 nms)
+{
+    uint16_t i;
+    while(nms--)
+    {
+        i = 33800;       //秒表1分钟测试33800
+        while(i--);
+    }
+}
+定义一帧数据，用于DMA发送到串口：
+
+
+/*定义一帧数据，准备发送，\r\n代表回车换行，共两个字节*/ 
+u8 SendBuf[] = "Hello Everyone!\r\n"; //全长17个字节
+
+void USART2_Init( u32 baudrate );
+串口2（USART2）的初始化，放在main.c文件的下面。
+
+void USART2_Init( u32 baudrate )
+{
+GPIO_InitTypeDef GPIO_InitStructure; //定义一个GPIO初始化用的结构体
+USART_InitTypeDef USART_InitStructure;  //定义一个串口初始化用的结构体
+    
+/*使能GPIOA和USART2时钟*/
+RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE);  //GPIOA在AHB1高速总线上
+RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2,ENABLE); //USART2在APB1硬件总线上
+
+/*USART2 GPIO配置*/
+GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2 | GPIO_Pin_3; //USART2的IO
+GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;  //复用模式
+GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;//速度50MHz
+GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;  //推挽复用输出
+GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP; //上拉电阻   
+GPIO_Init(GPIOA,&GPIO_InitStructure);  
+    
+/*USART2 对应引脚复用映射*/
+GPIO_PinAFConfig(GPIOA,GPIO_PinSource2,GPIO_AF_USART2); //映射PA2到USART2上使用
+GPIO_PinAFConfig(GPIOA,GPIO_PinSource3,GPIO_AF_USART2); //映射PA3到USART2上使用
+
+ /*USART2 端口配置*/
+USART_InitStructure.USART_BaudRate = baudrate;  //波特率设置
+USART_InitStructure.USART_WordLength = USART_WordLength_8b;  //字长8bit
+USART_InitStructure.USART_StopBits = USART_StopBits_1;       //1停止位
+USART_InitStructure.USART_Parity = USART_Parity_No;          //无校验
+USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;//无硬件数据流控制
+USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;    //收发
+USART_Init(USART2, &USART_InitStructure); //使用上面的参数初始化USART2
+    
+USART_Cmd(USART2, ENABLE);  //使能串口2 
+}
+在主函数main中，定义一个初始化DMA的结构体，以及初始化串口2：
+
+DMA_InitTypeDef DMA_InitStruct;//定义 DMA 初始化结构体
+USART2_Init(115200); //串口2 初始化波特率115200
+然后按照顺序依次设置DMA的参数，最后启动DMA：
+
+USART_DMACmd(USART2,USART_DMAReq_Tx,ENABLE);  //使能串口2的DMA发送   
+USART_DMACmd(USART2,USART_DMAReq_Rx,ENABLE);  //使能串口2的DMA接收
+    
+RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_DMA1,ENABLE); //开启DMA1时钟
+
+    /* 配置 DMA Stream */
+    /*配置 DMA1 的通道、外设地址、存储器地址、数据方向、数量和递增要求*/
+  DMA_InitStruct.DMA_Channel = DMA_Channel_4;  //通道选择
+  DMA_InitStruct.DMA_PeripheralBaseAddr = (u32)&USART2->DR;//DMA外设地址设为串口2
+  DMA_InitStruct.DMA_Memory0BaseAddr = (u32)SendBuf;//DMA 存储器地址：要发送的地址
+  DMA_InitStruct.DMA_DIR = DMA_DIR_MemoryToPeripheral;//存储器-->外设模式
+  DMA_InitStruct.DMA_BufferSize = 17;//数据传输量
+  DMA_InitStruct.DMA_PeripheralInc = DMA_PeripheralInc_Disable;//外设地址不递增
+  DMA_InitStruct.DMA_MemoryInc = DMA_MemoryInc_Enable;//存储器地址递增
+    
+    /* 配置 DMA1 其他参数 */
+  DMA_InitStruct.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;//外设数据长度:8位
+  DMA_InitStruct.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;//存储器数据长度:8位
+  DMA_InitStruct.DMA_Mode = DMA_Mode_Normal;// 使用普通模式 
+  DMA_InitStruct.DMA_Priority = DMA_Priority_Medium;//中等优先级
+  DMA_InitStruct.DMA_FIFOMode = DMA_FIFOMode_Disable; //不使用FIFO        
+  DMA_InitStruct.DMA_FIFOThreshold = DMA_FIFOThreshold_Full;
+  DMA_InitStruct.DMA_MemoryBurst = DMA_MemoryBurst_Single;//存储器突发单次传输
+  DMA_InitStruct.DMA_PeripheralBurst = DMA_PeripheralBurst_Single;//外设突发单次传输
+  DMA_Init(DMA1_Stream6, &DMA_InitStruct);//使用上述参数 初始化DMA Stream6
+　DMA_Cmd(DMA1_Stream6, ENABLE);    //最后，启动 DMA 发送数据到串口2，电脑端接收到数据
+初始化完成以后在主循环main.c中，没有任何和操作，充分体现了DMA数据传输的自主性。
+
+while(1)
+{
+
+}
+四、实验结果
+实验结果：编译下载、运行后初始化以后，DMA立即把预设的一帧数据发送到串口中，PC电脑的串口调试工具显示输出结果（调试工具提前打开接收）：
+
+
+ 

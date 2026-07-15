@@ -1,0 +1,1174 @@
+、实验介绍
+1. 实验目的
+
+• 理解指纹识别的技术原理与应用
+
+• 掌握ZN632模块功能与交互协议
+
+• 掌握ZN632指纹识别概念与流程
+
+• 掌握STM32串口编程方法
+
+• 掌握ZN632驱动编程方法
+
+• 实现ZN632指纹录入与匹配功能
+
+2. 实验内容
+
+指纹识别是常用的功能部件，在门禁、支付等多领域都有广泛应用。AU100开发板带有ZN632指纹识别模块，本实验通过此模块实现了指纹录入与指纹匹配的功能，通过本实验可深入学习STM32串口编程方法，掌握指纹模块工作原理及流程，掌握ZN632模块的命令交互和控制方法，实验内容主要如下：
+
+1） FPR工程创建
+
+2） FPR串口通信实现
+
+3） FPR基础命令实现
+
+4） FPR功能流程实现
+
+5） FPR测试示例实现
+
+3. 实验知识点
+
+• FPR指纹识别原理
+
+• ZN632指纹识别命令
+
+• 指纹录入常规流程
+
+• 指纹匹配常规流程
+
+• STM32串口编程
+
+4. 实验时长
+
+共5学时，学时分配如下：
+
+• FPR工程创建（0.5学时）
+
+• FPR串口通信实现（1学时）
+
+• FPR基础命令实现（2学时）
+
+• FPR功能流程实现（1学时）
+
+• FPR测试示例实现（0.5学时）
+
+5. 实验环境
+
+• AU100开发板-STM32F407
+
+• Keil MDK 5.36
+
+• Keil.STM32F4xx_DFP.2.15.0
+
+• STM32F4xx_StdPeriph_Driver v1.81
+
+• Windows 10
+
+二、实验分析
+1） FPR工程创建
+
+• 硬件连接
+
+• 创建驱动文件
+
+2） FPR串口通信实现
+
+• 串口初始化与关闭
+
+• 串口收发数据
+
+• 串口数据校验
+
+3） FPR基础命令实现
+
+• 密码验证命令
+
+• 获取索引表命令
+
+• 获取图像命令
+
+• 生成特征命令
+
+• 合成模板命令
+
+• 储存模板命令
+
+• 高速搜索命令
+
+4） FPR功能流程实现
+
+• 循环获取指纹图像
+
+• 指纹录入流程
+
+• 指纹匹配流程
+
+5） FPR测试示例实现
+
+• 创建主程序
+
+• 测试示例源码实现
+
+三、实验步骤
+FPR驱动配置与创建
+1）硬件连接
+
+AU100的ZN632指纹识别与NFC共用UART1串口，使用跳线进行切换，如果要使用STM32F407编程控制指纹识别模块，则需选择指纹识别的跳线，如下：
+
+
+
+图 1 指纹识别跳线设置
+
+2）创建工程文件
+
+使用KEIL打开STM32工程基础模板，在其中添加FPR相关程序，工程目录结构如下：
+
+
+
+图 2 FPR工程目录
+
+BSP目录主要有:
+
+fpr_zn632.h    //FPR模块对外接口头文件   
+fpr_zn632.c    //FPR驱动实现源码
+usart.h        //调试串口UART2对外接口头文件
+usart.c        //调试串口UART2驱动实现源码
+USR目录主要有:
+
+main.c           //主程序入口
+stm32f4xx_it.c  //中断处理函数文件
+usart.h为STM32的UART2调试串口的接口头文件，内容如下：
+
+【代码7-1-1】BSP/usart.h
+
+#ifndef __USART_H__
+#define __USART_H__
+#include "stm32f4xx.h"
+
+void UART2_Init(u32 bound);
+
+#endif
+usart.c为STM32的UART2调试串口驱动实现源码，内容如下：
+
+【代码7-1-2】BSP/usart.c
+
+#include <stdio.h>
+#include "usart.h"     
+
+void UART2_Init(u32 bound)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+    
+    //使能GPIOA和USART1时钟
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE);  //GPIOA在AHB1高速总线上
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2,ENABLE); //USART2在APB1硬件总线上
+
+    //USART2 对应引脚复用映射
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF_USART2); 
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF_USART2); 
+    
+    //USART2 IO配置
+    GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_2 | GPIO_Pin_3; 
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;     //复用
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;//速度50MHz
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;   //推挽复用输出
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_UP;    
+    GPIO_Init(GPIOA,&GPIO_InitStructure);  
+    
+    //USART2 端口配置
+    USART_InitStructure.USART_BaudRate = bound;  //波特率设置
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;  //字长8bit
+    USART_InitStructure.USART_StopBits   = USART_StopBits_1;       //1停止位
+    USART_InitStructure.USART_Parity     = USART_Parity_No;          //无校验
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;//无硬件数据流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;    //收发
+    USART_Init(USART2, &USART_InitStructure); 
+    
+    NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;         //USART2中断向量
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 3; //抢占优先级3
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;          //子优先级3
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;              //IRQ通道使能
+    NVIC_Init( &NVIC_InitStructure );    
+    
+//本实验不要开启USART2的接收中断
+    //USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//开中断
+
+    USART_Cmd(USART2, ENABLE);  //使能串口2 
+}
+
+
+/*
+发送一个字符 
+*/
+void UART_SendByte( USART_TypeDef * pUSARTx, uint8_t ch)
+{
+    //发送一个字节数据到USART
+    USART_SendData(pUSARTx, ch);
+        
+    //等待发送数据寄存器为空
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+/*
+发送字符串
+*/
+void UART_SendString( USART_TypeDef * pUSARTx, char *str)
+{
+    unsigned int k=0;
+    do {
+      UART_SendByte( pUSARTx, *(str + k) );
+      k++;
+    } while(*(str + k)!='\0');
+  
+  //等待发送完成
+  while(USART_GetFlagStatus(pUSARTx,USART_FLAG_TC)==RESET){}
+}
+
+/*****************  发送一个16位数 **********************/
+void UART_SendHalfWord( USART_TypeDef * pUSARTx, uint16_t ch)
+{
+    uint8_t temp_h, temp_l;    
+    temp_h = (ch&0XFF00)>>8;      /* 取出高八位 */
+    temp_l = ch&0XFF;      /* 取出低八位 */
+    
+    USART_SendData(pUSARTx,temp_h);         /* 发送高八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+    
+    USART_SendData(pUSARTx,temp_l);         /* 发送低八位 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TXE) == RESET);    
+}
+
+//重定向c库函数printf到串口，重定向后可使用printf函数
+int fputc(int ch, FILE *f)
+{
+    // 发送一个字节数据到串口
+    USART_SendData(USART2, (uint8_t) ch);
+        
+    // 等待发送完毕
+    while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);        
+
+    return (ch);
+}
+
+//重定向c库函数scanf到串口，重写向后可使用scanf、getchar等函数
+int fgetc(FILE *f){
+    // 等待串口输入数据
+    while (USART_GetFlagStatus(USART2, USART_FLAG_RXNE) == RESET);
+    return (int)USART_ReceiveData(USART2);
+}
+
+
+/*
+串口2中断处理函数  
+*/
+void USART2_IRQHandler( void ){
+    u8 sbuf = 0;
+  
+    //接收中断服务函数
+    if(USART_GetFlagStatus(USART2, USART_FLAG_RXNE)) {
+        sbuf = USART_ReceiveData(USART2);//收到一个字节
+        USART_SendData(USART2, sbuf);    //回显转发回去
+    }
+}
+fpr_zn632.h为FPR模块的对外接口头文件，主要内容为：
+
+【代码7-1-3】BSP/fpr_zn632.h
+
+#ifndef __FPR_ZN632_H__
+#define __FPR_ZN632_H__
+
+#include <stdio.h>
+#include "stm32f4xx.h"
+
+extern uint32_t  ZN632_RxBufLen; 
+extern uint8_t ZN632_RxBuf[];
+
+void FPR_Init(uint32_t baud);
+void FPR_AddFinger(void);
+void FPR_MatchFinger(void);
+void FPR_DeleteFinger(void);
+
+#define ZN632_PowerOff()  GPIO_SetBits(GPIOC,   GPIO_Pin_9)
+int16_t ZN632_PowerOn(void);
+
+int16_t ZN632_VryPwd(void);
+int16_t ZN632_ReadIndexTable(void);
+uint16_t ZN632_GetIndexEmpty(void);
+void ZN632_SetIndex(uint16_t uIndex);
+
+int16_t ZN632_GetImage(void);
+int16_t ZN632_GenChar(uint8_t BufferID);
+int16_t ZN632_Match(void);
+int16_t ZN632_RegModel(void);
+int16_t ZN632_StoreChar(uint8_t BufferID, uint16_t PageID);
+int16_t ZN632_HighSpeedSearch(uint8_t BufferID, uint16_t *pID, uint16_t *pScore);
+int16_t ZN632_DeletChar(uint16_t PageID, uint16_t N);
+int16_t ZN632_Empty(void);
+
+#endif
+fpr_zn632.c为FPR模块的驱动实现文件，驱动具体内容在后续步骤中将逐一说明，当前先定义所需的全局量，以备使用，主要为头文件引用、缓冲区、宏定义等内容，具体用途后续步骤中说明，主要内容为：
+
+【代码7-1-4】BSP/fpr_zn632.c
+
+#include <string.h>
+#include "fpr_zn632.h"
+#include "delay.h"
+
+#define CMD_GetImage        0x01
+#define CMD_GetEnrollImage  0x29
+#define CMD_GenChar         0x02
+#define CMD_Match           0x03
+#define CMD_Search          0x04　
+#define CMD_RegModel        0x05
+#define CMD_StoreChar       0x06
+#define CMD_LoadChar        0x07
+#define CMD_UpChar     　　 0x08
+#define CMD_DownChar   　　 0x09
+#define CMD_UpImage    　　 0x0A
+#define CMD_DownImage   　  0x0B
+#define CMD_DeletChar       0x0C
+#define CMD_Empty           0x0D
+#define CMD_WriteReg        0x0E
+#define CMD_ReadSysPara     0x0F
+#define CMD_VryPwd          0x13
+#define CMD_GetRandomCode   0x14
+#define CMD_SetChipAddr     0x15
+#define CMD_ReadINFpage     0x16
+#define CMD_Port_Control    0x17
+#define CMD_HighSpeedSearch 0x1B
+#define CMD_ReadIndexTable  0x1F
+
+#define ZN632_DELAY_MS(x) delay_ms(x)  //延时
+
+#define ZN632_USART  USART1
+
+#define ZN632_BUF_LEN  128  //接收缓冲区大小
+uint32_t  ZN632_RxBufLen = 0;    //接收数据长度
+uint8_t   ZN632_RxBuf[ZN632_BUF_LEN] ;    //接收缓冲区
+uint8_t g_uExitToChange = 0; //强制退出当前任务，以便进行其他任务
+
+uint8_t ZN632_ADDR[4]  = {0xFF, 0xFF, 0xFF, 0xFF}; 
+
+#define ZN632_INDEX_MAX   240  //指纹模块最大存储指纹模板数
+uint8_t ZN632_INDEX[32] = {0}; //指纹ID索引值，每一位代表当前索引是否已录入
+
+void ZN632_GPIO_Init(void);
+void ZN632_UART_Init(uint32_t baud);
+void ZN632_SendData(uint8_t *data, uint8_t length);
+void ZN632_SendHead(void);
+void ZN632_ShowError( uint16_t  code);
+void ZN632_ClearRxBuf(void);
+FPR串口通信实现
+1）模块初始化
+
+指纹识别模块使用前需首先对控制开关和接口进行初始化。初始化内容主要有：电源控制线GPIO初始化，串口初始化，上电握手信号检测三部分。
+
+• GPIO初始化：电源控制线初始化主要为PC9引脚的单独的电源控制线，使用模块时需先打开电源。
+
+• 串口初始化要为串口时钟设置、UART1串口PA9、PA10引脚设置，复用设置，串口初始化为8数据位，1停止位，无校验位,串口中断设置，当前只使用接收中断。
+
+• ZN632模块在上电时发送0x55握手信号，表示启动完成可开始工作，需循环等待读取此握手信号。
+
+各部分实现源码如下：
+
+【代码7-2-1】BSP/fpr_zn632.c
+
+
+/**
+* @brief  初始化配置
+* @param  无
+* @retval 无
+*/
+void FPR_Init( uint32_t baud ){
+    ZN632_GPIO_Init();
+    ZN632_UART_Init(baud);
+    ZN632_PowerOn();
+}
+
+
+
+//GPIO初始化
+void ZN632_GPIO_Init(void){
+    GPIO_InitTypeDef GPIO_InitStructure; 
+
+    //电源GPC9 FPR_PWR线电源线
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC, ENABLE);    
+    
+    GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_9;
+    GPIO_InitStructure.GPIO_Mode  = GPIO_Mode_OUT;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;  
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_NOPULL;
+    GPIO_Init(GPIOC, &GPIO_InitStructure);
+}
+
+
+//串口初始化
+void ZN632_UART_Init(uint32_t baud){
+    GPIO_InitTypeDef GPIO_InitStructure; 
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;  
+
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);//打开串口外设的时钟
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);//使能串口时钟
+
+    //GPIO初始化
+    //配置GPA9-Tx GPA10-Rx复用为UART1    
+    GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_9 |GPIO_Pin_10;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_UP;  
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
+    
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource9,  GPIO_AF_USART1); 
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource10, GPIO_AF_USART1);
+    
+    //配置串ZN632_USART工作参数
+    USART_InitStructure.USART_BaudRate = baud;
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b; //8数据位
+    USART_InitStructure.USART_StopBits = USART_StopBits_1;  //1停止位
+    USART_InitStructure.USART_Parity = USART_Parity_No;  //无校验位
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;  //无硬件流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;  //收发双向
+    USART_Init(ZN632_USART, &USART_InitStructure);
+
+    USART_ITConfig(ZN632_USART, USART_IT_RXNE, ENABLE);     //使能接收中断
+    USART_Cmd(ZN632_USART, ENABLE);
+
+    //UART配置NVIC中断
+    //NVIC_PriorityGroupConfig( NVIC_PriorityGroup_2 ); 
+    NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;        //配置USART为中断源
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;    //抢断优先级
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;   //子优先级
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;      //使能中断
+    NVIC_Init(&NVIC_InitStructure);     //初始化配置NVIC
+}
+
+
+/*
+上电启动
+*/
+int16_t ZN632_PowerOn(void){
+    uint32_t i = 0;
+    GPIO_ResetBits(GPIOC, GPIO_Pin_9); //拉低电源控制线加电
+    
+    //等待成功字符
+    while(1){     
+        if(ZN632_RxBuf[0] == 0x55){//启动成功标志
+            ZN632_ClearRxBuf();
+            return 0;
+        }
+        
+        i++;
+        if(i>1000){ return -1; }//超时退出，未收到启动字符
+        ZN632_DELAY_MS(1);
+    }
+}
+2）串口收发数据
+
+ZN632所有命令交互都需经串口进行发送，使用STM32的USART_SendData()发送函数逐字节发送即可，ZN632所有命令都需先发送命令头，单独封装命令头发送函数。
+
+ZN632模块接收数据使用UART1接收中断实现，需先定义接收缓冲区，在接收中断中逐字节接收数据。ZN632每个命令都需执行完毕后才发送响应包，因此发送命令后需延时等待中断接收完数据后再做处理。收发数据源码如下：
+
+【代码7-2-2】BSP/fpr_zn632.c
+
+/**
+  * @brief  ZN632_USART串口向指纹模块传递数据 
+  * @param  data;传输的数据
+  * @param  data;数据长度
+  */
+void ZN632_SendData(uint8_t *data, uint8_t length){
+    uint8_t i = 0;
+    for(i=0; i<length; i++){
+        USART_SendData(ZN632_USART, data[i]);
+        while(USART_GetFlagStatus(ZN632_USART, USART_FLAG_TXE) == RESET){} //等待发送完成 
+    }
+}
+
+/*
+发送命令头
+*/
+void ZN632_SendHead( void ){
+    uint8_t head[6] = {0};
+
+    head[0] = 0xEF;  //包标识
+    head[1] = 0x01;
+    head[2] = ZN632_ADDR[0]; //地址
+    head[3] = ZN632_ADDR[1];
+    head[4] = ZN632_ADDR[2];
+    head[5] = ZN632_ADDR[3];
+    
+    ZN632_SendData(head, 6);
+}
+
+
+/**
+* @brief  串口中断服务函数,把接收到的数据写入缓冲区，
+                    在main函数中轮询缓冲区输出数据
+* @param  None
+* @retval None
+*/
+void USART1_IRQHandler( void ){
+    if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET){
+        ZN632_RxBuf[ZN632_RxBufLen++] = USART_ReceiveData( USART1 );
+        USART_ClearITPendingBit(USART1, USART_IT_RXNE);
+    }
+}
+
+
+/*
+串口清空接收缓冲区
+*/
+void ZN632_ClearRxBuf(void){
+    memset(ZN632_RxBuf, 0, ZN632_RxBufLen);
+    ZN632_RxBufLen = 0;
+}
+3）串口数据校验
+
+串口数据接收到后，需验证数据是否正确，主要验证数据长度是否合理，包头、地址、校验码等内容，验证正确返回0，不正确返回错误码。
+
+【代码7-2-3】BSP/fpr_zn632.c
+
+/*
+检查返回ACK包是否合规  
+*/
+int16_t ZN632_CheckAck(){
+    uint16_t i = 0;
+    uint16_t temp = 0;
+    uint16_t sum = 0;
+    uint16_t len = 0;
+        
+    //包头检查
+    if(ZN632_RxBuf[0] != 0xEF|| ZN632_RxBuf[1] != 0x01){ return -1; }
+    
+    //地址码检查
+    if(ZN632_RxBuf[2] != ZN632_ADDR[0] || ZN632_RxBuf[3] != ZN632_ADDR[1] || 
+       ZN632_RxBuf[4] != ZN632_ADDR[2] || ZN632_RxBuf[5] != ZN632_ADDR[3]){
+        return -1;
+    }
+    
+    len = ZN632_RxBuf[7] << 8 | ZN632_RxBuf[8];
+    temp = 0;
+    for(i=0; i<=len; i++){
+        temp += ZN632_RxBuf[6+i];
+    }
+    sum = ZN632_RxBuf[9+len-2]<<8 | ZN632_RxBuf[9+len-1];//最后两字节为校验和
+    if( sum != temp ){ return -1; } //校验码不对 
+    
+    //返回确认码
+    return ZN632_RxBuf[9];
+}
+FPR基础命令实现
+1） 密码验证命令
+
+ZN632模块需验证密码后才可使用，密码验证命令带有密码参数，返回验证是否成功。若模块使用默认密码，则可不验证。
+
+【代码7-3-1】BSP/fpr_zn632.c
+
+
+int16_t ZN632_VryPwd( void ){
+    uint16_t temp = 0;
+    int16_t  ret = 0;
+    uint8_t cmd[10] = {0};
+ 
+    cmd[0] = 0x01;         //包标识
+    cmd[1] = 0x00;         //包长度
+    cmd[2] = 0x07;         //包长度
+    cmd[3] = CMD_VryPwd; //命令码
+    cmd[4] = 0; //密码
+    cmd[5] = 0; //密码
+    cmd[6] = 0; //密码
+    cmd[7] = 0; //密码
+    
+    temp = cmd[0] + cmd[1] + cmd[2] + cmd[3] + cmd[4] + cmd[5] + cmd[6] + cmd[7];
+    cmd[8] = temp >> 8;
+    cmd[9] = temp;
+    
+    ZN632_SendHead();
+    ZN632_SendData(cmd, 10);
+
+    ZN632_DELAY_MS( 300 );//等待指纹识别模块处理数据
+    
+    ret = ZN632_CheckAck();
+    if(ret != 0){//显示错误信息
+        ZN632_ShowError(ret);
+    }
+    
+    ZN632_ClearRxBuf();
+    return ret;
+}
+2） 获取索引表命令
+
+ZN632使用索引表标记指纹库哪些位置为空，在储存新指纹时使用此表查找储存位置。ZN632容量只需读页码0，即读取前256个标记位，返回数据带有32个字节的索引表，需保存此返回值。与索引表对应的还封装有空位置查询函数、位置标记函数、位置清除函数，方便指纹增删时使用，
+
+【代码7-3-2】BSP/fpr_zn632.c
+
+/**
+获取指纹索引列表
+*/
+int16_t ZN632_ReadIndexTable( void ){
+    uint16_t temp = 0;
+    int16_t  ret = 0;
+    uint8_t  cmd[7] = {0};
+ 
+    cmd[0] = 0x01;     //包标识
+    cmd[1] = 0x00;     //包长度
+    cmd[2] = 0x04;     //包长度
+    cmd[3] = CMD_ReadIndexTable; //命令码
+    cmd[4] = 0; //页码,0-3，ZN632只支持页0
+    
+    temp = cmd[0] + cmd[1] + cmd[2] + cmd[3] + cmd[4];
+    cmd[5] = temp >> 8;
+    cmd[6] = temp;
+    
+    ZN632_SendHead();
+    ZN632_SendData(cmd, 7);
+
+    ZN632_DELAY_MS( 300 );//等待指纹识别模块处理数据
+    
+    ret = ZN632_CheckAck();
+    if(ret != 0){//显示错误信息
+        ZN632_ShowError(ret);
+        goto _END;
+    }
+ 
+    //保存索引数据
+    memcpy(ZN632_INDEX, ZN632_RxBuf+10, 32);
+ 
+_END:    
+    ZN632_ClearRxBuf();
+    return ret;
+}
+
+/*
+获取当前最小的可用空索引值
+*/
+uint16_t ZN632_GetIndexEmpty(void){
+    uint16_t index = 0;
+    uint16_t i,j = 0;
+    
+    for(i = 0;i < sizeof(ZN632_INDEX); i++){ //循环每个字节
+        for(j = 0; j < 8;j++){ //循环一个字节的8bit
+            if(ZN632_INDEX[i] & (0x1<<j) ){//该位已占用
+                index++;
+            }
+            else {//为空则置1
+                return index;
+            }
+        }
+    }
+
+    return ZN632_INDEX_MAX;
+}
+
+/*
+将模板编号对应的标志位置1，表示已录入
+*/
+void ZN632_SetIndex(uint16_t uIndex){    
+    uint8_t uByte = uIndex / 8;
+    uint8_t uBit  = uIndex % 8;
+
+    if(uIndex >= ZN632_INDEX_MAX){return;}
+    
+    ZN632_INDEX[uByte] |= 0x1<< uBit;
+}
+
+/*
+清除标识志
+*/
+void ZN632_UnsetIndex(uint16_t uIndex){    
+    uint8_t uByte = uIndex / 8;
+    uint8_t uBit  = uIndex % 8;
+
+    if(uIndex >= ZN632_INDEX_MAX){return;}
+    
+    ZN632_INDEX[uByte] &= ~(0x1 << uBit);
+}
+3） 获取图像命令
+
+ZN632在录入指纹、搜索指纹时都需先获取指纹图像，获取图像命令只需发送相应命令码即可，应答包确认码获取是否成功。图像会自动保存于图像缓冲区。
+
+【代码7-3-3】BSP/fpr_zn632.c
+
+/**
+  * @brief   获取图像，探测到后录入指纹图像存于ImageBuffer
+  * @param   无
+  * @retval  确认码=00H 表示录入成功；
+             确认码=01H 表示收包有错；
+             确认码=02H 表示传感器上无手指；
+             确认码=03H 表示录入不成功 
+  */
+int16_t ZN632_GetImage( void ){
+    uint16_t temp = 0;
+    int16_t  ret = 0;
+    uint8_t cmd[6] = {0};
+ 
+    cmd[0] = 0x01;         //包标识
+    cmd[1] = 0x00;         //包长度
+    cmd[2] = 0x03;         //包长度
+    cmd[3] = CMD_GetImage; //命令码
+    temp = cmd[0] + cmd[1] + cmd[2] + cmd[3];
+    cmd[4] = temp >> 8; 
+    cmd[5] = temp;
+    
+    ZN632_SendHead();
+    ZN632_SendData(cmd, sizeof(cmd));
+
+    ZN632_DELAY_MS( 500 );//等待模块处理数据
+
+    ret = ZN632_CheckAck();
+    if(ret != 0){//显示错误信息
+        ZN632_ShowError(ret);
+    }
+    
+    ZN632_ClearRxBuf();
+    return ret;
+}
+4） 生成特征命令
+
+指纹识别在获取指纹图像后，需提取特征才可用于比较，生成特征此命令会自动将图像缓冲区的图像生成特征保存于特征缓冲区，需指定缓存区编号，值为1或2
+
+【代码7-3-4】BSP/fpr_zn632.c
+
+ /**
+  * @brief  将ImageBuffer中的原始图像生成指纹特征文件存于CHARBUFFER1或CHARBUFFER2
+  * @param  BufferID(特征缓冲区号)
+  * @retval 确认码=00H 表示生成特征成功；确认码=01H 表示收包有错；
+            确认码=06H 表示指纹图像太乱而生不成特征；
+            确认码=07H 表示指纹图像正常，但特征点太少而生不成特征；
+            确认码=15H 表示图像缓冲区内没有有效原始图而生不成图像
+  */
+int16_t ZN632_GenChar(uint8_t BufferID ){
+    uint16_t temp = 0;
+    int16_t  ret = 0;
+    uint8_t  cmd[7] = {0};
+
+    cmd[0] = 0x01;         //包标识
+    cmd[1] = 0x00;         //包长度
+    cmd[2] = 0x04;         //包长度
+    cmd[3] = CMD_GenChar;  //命令码
+    cmd[4] = BufferID;
+    temp = cmd[0] + cmd[1] + cmd[2] + cmd[3] + cmd[4]; //校验和
+    cmd[5] = temp >> 8; 
+    cmd[6] = temp ;
+    
+    ZN632_SendHead();
+    ZN632_SendData(cmd, sizeof(cmd));
+       
+    ZN632_DELAY_MS( 500 );
+    
+    ret = ZN632_CheckAck();
+    if(ret != 0){//显示错误信息
+        ZN632_ShowError( ret );
+    }
+       
+    ZN632_ClearRxBuf();
+    return ret;
+}
+5） 合成模板命令
+
+指纹识别需将两个特征合成一个指纹模板，合成模板后才可储存至指纹模板库用于匹配，合成模板命令可将2个特征缓区内的合成后保存于缓冲区,无参数，确认码返回执行状态。
+
+【代码7-3-5】BSP/fpr_zn632.c
+
+/**
+  * @brief  将CHAR BUFFER1与CHARBUFFER2 中的特征文件合并生成模板，
+            结果存于CHARBUFFER1与CHARBUFFER2。
+  * @param  无
+  * @retval 
+确认码=00H 表示合并成功；
+确认码=01H 表示收包有错；
+确认码=0aH 表示合并失败（两枚指纹不属于同一手指）
+  */
+int16_t ZN632_RegModel( void ){
+    uint16_t temp = 0;
+    int16_t  ret = 0;
+    uint8_t cmd[6] = {0};
+
+    cmd[0] = 0x01;         //包标识
+    cmd[1] = 0x00;         //包长度
+    cmd[2] = 0x03;         //包长度
+    cmd[3] = CMD_RegModel;  //命令码
+    temp = cmd[0] + cmd[1] + cmd[2] + cmd[3]; //校验和
+    cmd[4] = temp >> 8;
+    cmd[5] = temp ;
+      
+    ZN632_SendHead();
+    ZN632_SendData(cmd, 6);
+
+    ZN632_DELAY_MS(500);
+    
+    ret = ZN632_CheckAck();
+    if(ret != 0){//显示错误信息
+        ZN632_ShowError(temp);
+    }
+
+    ZN632_ClearRxBuf();  
+    return  ret;
+}
+6） 储存模板命令
+
+储存模板命令会将缓存区中的模板保存于指纹库，需指定模板所在的缓存区编号和要储存的指纹库编号，确认码返回执行状态。
+
+【代码7-3-6】BSP/fpr_zn632.c
+
+/**
+  * @brief  将 CHARBUFFER1 或 CHARBUFFER2 中的模板文件存到 PageID 号flash 数据库位置。
+  * @param  BufferID:缓冲区号，
+  * @param     PageID:指纹库位置号
+  * @retval 确认码=00H 表示储存成功；
+            确认码=01H 表示收包有错；
+            确认码=0bH 表示 PageID 超出指纹库范围；
+            确认码=18H 表示写 FLASH 出错
+  */
+int16_t ZN632_StoreChar(uint8_t BufferID, uint16_t PageID){
+    uint16_t temp = 0;
+    int16_t ret = 0;
+    uint8_t cmd[9] = {0};
+
+    cmd[0] = 0x01;  //包标识
+    cmd[1] = 0x00;  //包长度
+    cmd[2] = 0x06;  //包长度
+    cmd[3] = CMD_StoreChar;//命令码
+    cmd[4] = BufferID;  //BufferID
+    cmd[5] = PageID>>8;  //PageID
+    cmd[6] = PageID;
+    
+    temp = cmd[0] + cmd[1] + cmd[2] + cmd[3] + cmd[4] + cmd[5] + cmd[6]; //校验和
+    cmd[7] = temp >> 8;
+    cmd[8] = temp ;
+
+    ZN632_SendHead();
+    ZN632_SendData( cmd, sizeof(cmd));
+    
+    ZN632_DELAY_MS( 300 );
+    
+    ret = ZN632_CheckAck();
+    if(ret != 0){//显示错误信息
+        ZN632_ShowError(ret);
+    }
+    
+    ZN632_ClearRxBuf();
+    return  ret;
+}
+7） 高速搜索命令
+
+指纹识别的匹配指纹实际就是在指纹库中进行特征搜索，可指定特征编号和搜索区间，当前为搜索全库，区间指定为0-最大值．搜索成功后，可保存搜索到的ID与匹配分数。
+
+【代码7-3-7】BSP/fpr_zn632.c
+
+/**
+  * @brief  以CHAR BUFFER1或CHAR BUFFER2中的特征文件高速搜索整个或部分指纹库
+  * @param  BufferID:缓冲区号
+  * @param  StartPage:起始页
+  * @param  PageNum:页数
+  * @retval 
+    ensure:确认字,
+    *p:页码（相配指纹模板）
+  */
+int16_t ZN632_HighSpeedSearch(uint8_t BufferID, uint16_t *pID, uint16_t *pScore)
+{
+    uint16_t temp = 0;
+    int16_t ret = 0;
+    uint8_t cmd[11] = {0};
+
+    cmd[0] = 0x01;         //包标识    
+    cmd[1] = 0x00;         //包长度
+    cmd[2] = 0x08;         //包长度
+    cmd[3] = CMD_HighSpeedSearch; //命令码
+    cmd[4] = BufferID;  //BufferID
+    cmd[5] = 0;  //StartPage
+    cmd[6] = 0;
+    cmd[7] = ZN632_INDEX_MAX>>8;
+    cmd[8] = ZN632_INDEX_MAX;
+    
+    temp = cmd[0] + cmd[1] + cmd[2] + cmd[3] + cmd[4] + cmd[5] + cmd[6] + cmd[7] + cmd[8]; //校验和
+    cmd[9]  = temp >> 8;
+    cmd[10] = temp ;
+
+    ZN632_SendHead();
+    ZN632_SendData(cmd, sizeof(cmd));
+    
+     ZN632_DELAY_MS( 300 );
+    
+    ret = ZN632_CheckAck();
+    if(ret != 0){
+        ZN632_ShowError( ret );
+        goto _END;
+    }
+ 
+    *pID    = ZN632_RxBuf[10]<<8 | ZN632_RxBuf[11];
+    *pScore = ZN632_RxBuf[12]<<8 | ZN632_RxBuf[13];
+
+_END:
+    ZN632_ClearRxBuf();
+    return  ret;
+}
+FPR功能流程实现
+1） 循环获取指纹图像
+
+ZN632_GetImage命令可获取指纹图像，但在实际应用中，指纹识别需等待手指放上传感器，因此需要循环等待，在等待获取图像时也有可能取消当前任务，因此等待时还需要有标识位检测退出机制，具体实现逻辑如下：
+
+【代码7-4-1】BSP/fpr_zn632.c
+
+/*
+阻塞获取手指图像，
+可通过中断或其他任务退出阻塞，以便切换其他任务
+*/
+int8_t FPR_GetImage( void ){
+    while(1){
+        if(ZN632_GetImage() == 0){
+            printf("Get One Finger\r\n");
+            return 0;
+        }
+        
+        if(g_uExitToChange == 1 ){//退出切换任务
+            g_uExitToChange = 0;
+            return -1;
+        }
+    } 
+}
+2） 指纹录入流程
+
+指纹录入需按录入流程进行，采集两次指纹，每次取得图像后，生成特征，搜索指纹库，若库中已有此指纹则不录入，采集两次指纹后，合成模板，储存至指纹库。
+
+【代码7-4-2】BSP/fpr_zn632.c
+
+/**
+  * @brief  录入指纹
+  * @param  无
+  * @retval 无
+  */
+void FPR_AddFinger( void ){
+    int16_t ret = 0; 
+    uint16_t uID    = 0;
+    uint16_t uScore = 0;
+    uint8_t uStep = 1;
+ 
+    while(uStep <= 2){//采集两个指纹    
+        printf("Put Finger On Senser:%d\r\n", uStep);
+    
+        ret = FPR_GetImage(); //录入图像  
+        if(ret != 0){ return; }
+
+        ret = ZN632_GenChar(uStep);  //生成特征1
+        if(ret != 0){ continue; }
+
+        ret = ZN632_HighSpeedSearch(uStep, &uID, &uScore);
+        if(ret == 0) {
+            printf("Finger is Already registed\r\n");
+            continue;
+        }
+    
+        uStep++;
+    }
+
+    ret = ZN632_RegModel();//合并特征，生成模板
+    if(ret != 0){ return;  }
+    
+    uID = ZN632_GetIndexEmpty(); //获取空的编号位置
+    ret = ZN632_StoreChar(2, uID); //储存模板
+    if(ret != 0){ return; }
+    ZN632_SetIndex(uID); //保存成功，设置标识位
+
+    printf("Add Finger OK,ID:%d\r\n", uID); 
+}
+3） 指纹匹配流程
+
+指纹匹流程需按以下流程步骤分别进行:读取图像=>生成特征=>搜索指纹库，若搜索到匹配ID则匹配成功，若搜不到则为不匹配。
+
+【代码7-4-3】BSP/fpr_zn632.c
+
+/**
+  * @brief  比对指纹（识别指纹）
+  * @param  无
+  * @retval 无
+  */
+void FPR_MatchFinger( void ) {  
+    uint16_t uID    = 0;                    //初始化ID值
+    uint16_t uScore = 0; 
+    int16_t  temp = 0;
+
+    printf("Put Finger On Sensor:");
+    temp = FPR_GetImage();
+    if(temp != 0x00) { return; }
+    
+    temp = ZN632_GenChar(1);    //生成特征1
+    if(temp != 0) {  return; }
+   
+    temp = ZN632_HighSpeedSearch(1, &uID, &uScore); //高速搜索指纹库
+    if(temp != 0) { 
+        printf("Finger NOT Match\r\n");
+        return;
+    }
+    
+    printf("Finger Match, ID:%d\r\n", uID);
+}
+用于显示错误信息的函数：
+
+【代码7-4-4】BSP/fpr_zn632.c
+
+/**
+  * @brief  显示错误信息
+  * @param  ErrCode:确认码
+  * @retval 无
+  */
+void  ZN632_ShowError(uint16_t  code) {
+
+#if 0
+    switch( code ){
+
+    case 0x00:
+        printf("OK\r\n");
+        break;        
+    case 0x01:
+        printf("数据包接收错误\r\n");
+        break;
+    case 0x02:
+        printf("指纹模块没有检测到指纹！\r\n");
+        break;
+    case  0x03:
+        printf("录入指纹图像失败\r\n");
+        break;
+    case  0x04:
+        printf("指纹图像太干、太淡而生不成特征\r\n");
+        break;      
+    case  0x05:
+        printf("指纹图像太湿、太糊而生不成特征\r\n");
+        break;
+    case  0x06:
+        printf("指纹图像太乱而生不成特征\r\n");
+        break;    
+    case  0x07:
+        printf("指纹图像正常，但特征点太少（或面积太小）而生不成特征\r\n");
+        break;
+    case  0x08:
+        printf("指纹不匹配\r\n");
+        break;        
+    case  0x09:
+        printf("对比指纹失败，指纹库不存在此指纹！\r\n");
+        break;        
+    case  0x0a:
+        printf("特征合并失败\r\n");
+        break;
+    case  0x0b:
+        printf("访问指纹库时地址序号超出指纹库范围\r\n");
+        break;        
+    case  0x10:
+        printf("删除模板失败\r\n");
+        break;
+    case  0x11:
+        printf("清空指纹库失败\r\n");
+        break;            
+    case  0x15:
+        printf("缓冲区内没有有效原始图而生不成图像\r\n");
+        break;        
+    case  0x18:
+        printf("读写 FLASH 出错\r\n");
+        break;        
+    case  0x19:
+        printf("未定义错误\r\n");
+        break;        
+    case  0x1a:
+        printf("无效寄存器号\r\n");
+        break;
+    case  0x1b:
+        printf("寄存器设定内容错误\r\n");
+        break;
+    case  0x1c:
+        printf("记事本页码指定错误\r\n");
+        break;
+    case  0x1f:
+        printf("指纹库满\r\n");
+        break;
+    case  0x20:
+        printf("地址错误\r\n");
+        break;        
+    default :
+        printf("模块返回确认码有误\r\n");
+        break;    
+    }
+#endif
+}
+FPR测试示例实现
+1） 测试示例创建
+
+FPR驱动程序完成后，需主程序实现测试，主程序实现USER/main.c文件中实现。
+
+main.c为ZN632的测试示例程序，需定义相关全局量，主要为头文件等内容，如下所示：
+
+【代码7-5-1】USER/main.c
+
+#include "stm32f4xx.h"
+#include "fpr_zn632.h"
+#include "delay.h"
+#include "usart.h"
+
+void FPR_Usage( void ){
+    printf("Select one  \r\n");
+    printf("1 Add New Finger\r\n");
+    printf("2 Match Finger\r\n");
+}
+2） 测试示例源码实现
+
+指纹模块测试的主要有两个功能，一是指纹录入，二是指纹匹配，只需调用驱动的相应函数即可，使用调试串口getchar()函数接收输入数字，按以下步骤实现：
+
+- 初始化指纹模块．
+
+- 验证模块密码，(若为默认密码则可不验证)
+
+- 读取索引表，以备查询指纹库情况．
+
+- 输出功能菜单，等待读取功能选择
+
+- 根据不同选择调用驱动不同函数．
+
+【代码7-5-2】USER/main.c
+
+/**
+  * @brief  主函数
+  * @param  无
+  * @retval 无
+  */
+int main(void){
+    char   ch = 0;
+
+    UART2_Init(115200);
+    FPR_Init(56700);
+    printf("FPR Init OK\r\n");
+
+    if(ZN632_VryPwd() == 0){//验证模块密码
+        printf("Passwrd OK\r\n");
+    }
+    if(ZN632_ReadIndexTable() == 0){//读取指纹索引表,确认哪些编号已注册
+        printf("ReadIndexTable OK\r\n");
+    }
+    
+    while(1){
+        FPR_Usage();
+        ch = getchar();
+        switch( ch ){
+            case '1':
+                FPR_AddFinger();   //添加指纹
+                break;
+            case '2':
+                FPR_MatchFinger();   //比对指纹
+                break;
+            default:
+                printf("No this number\r\n");
+                break;      
+        }
+    }
+}
+四、实验结果
+1)程序编译下载运行后，从串口输入字符：1选择添加指纹功能，将手指放上传感器，连续获取两次指纹后，合成模板并自动储存，若指纹已录入则提示，串口输出内容如下：
+
+
+图2　指纹录入运行
+
+2)程序编译下载运行后，从串口输入字符：2选择添加指纹匹配功能，将手指放上传感器，成功匹配则输出匹配的指纹编号，不匹配则显示无此指纹，运行结果如下：
+
+

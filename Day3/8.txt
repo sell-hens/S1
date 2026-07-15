@@ -1,0 +1,283 @@
+一、实验介绍
+1. 实验目的
+
+• 了解 RTC的基本结构
+
+• 理解 RTC基本原理
+
+• 了解 STM32F407 RTC 的特点
+
+• 掌握 STM32F407 RTC 配置方法
+
+• 掌握 OLED驱动的移植方法
+
+• 掌握 RTC时钟数据的读取、更新、显示
+
+• 掌握 BKP 寄存器的使用方法
+
+2. 实验内容
+
+本实验通过配置和使用STM32F407的RTC时钟，编写了一个OLED显示的时钟，能显示时、分、秒、和日、月、年六个数据，本实验在青软遨游100开发板上需要安装纽扣电池CR1220，用于保存RTC数据和BKP寄存器数据；初始化和配置RTC，周期性的读取RTC的寄存器，移植OLED驱动程序用于显示：时、分、秒、月、日、年这些信息。
+
+3. 实验知识点
+
+• RTC基本结构
+
+• RTC基本原理
+
+• STM32F407 RTC 的特点
+
+• STM32F407 RTC 配置方法
+
+• OLED驱动移植方法
+
+• RTC时钟读取、更新、显示
+
+4. 实验时长
+
+2学时
+
+5. 实验环境
+
+• Windows 10 操作系统；
+
+• MDK 5.25和ST固件库
+
+• 青软 遨游100开发板（QST-AU100）
+
+二、实验步骤
+软件设计思路
+STM32F407 的实时时钟 (RTC) 是一个独立的 BCD 定时器/计数器。RTC 提供一个日历时钟、两个可编程闹钟中断，以及一个具有中断功能的周期性可编程唤醒标志。RTC 还包含用于管理低功耗模式的自动唤醒单元。两个 32 位寄存器包含二进码十进数格式 (BCD) 的秒、分钟、小时（12 或 24 小时制）、星期、日期、月份和年份。软件可编程的夏令时补偿，可使用更加精确的第二时钟源（50 Hz 或 60 Hz）来提高日历的精确度，利用亚秒级移位特性与外部时钟实现精确同步，具备精度为 5 ppm 的数字校准电路。同时具备 20 个备份寄存器（80 字节）。
+
+STM32F407的RTC系统相对于STM32F1来说，功能增强了， 增加了日历寄存器，而在STM32F1系列中，只有一个秒寄存器，时、分、日、月、年这些日历数据都需要用户自己计算，程序比较复杂。STM32F407的是包含上述的寄存器的，RTC的功能比较完整，很实用。
+
+两个32位寄存器（TR和DR）包含二进码十进数格式(BCD) 的秒、分钟、小时（12或24小时制）、星期、日期、月份和年份。此外，还可提供二进制格式的亚秒值。
+
+STM32F407的RTC可以自动将月份的天数补偿为28、29（闰年）、30 和31 天。并且还可以进行夏令时补偿。
+
+RTC的基本结构，如图所示：
+
+
+    在青软遨游100开发板上STM32F407的RTC晶振电路和后备电池供电电路，如图所示：
+
+
+
+
+
+STM32F407的RTC时钟和分频：RTC时钟源RTCCLK，可以从LSE时钟、LSI及HSE时钟中选择（通过RCC_BDCR寄存器选择）。选择LSE，即选择外部32.768kHz晶振为时钟源比较精确，可以保证时钟的走时精度，而RTC时钟核心，要求提供1Hz的时钟（即1秒）。所以，要设置RTC的可编程预分配器把32.768kHz的频率进行分频，得到1Hz。STM32F4的可编程预分配器（RTC_PRER）分为2个部分：
+
+1， 一个通过RTC_PRER寄存器的PREDIV_A位配置的7位异步预分频器。
+
+2， 一个通过RTC_PRER寄存器的PREDIV_S位配置的15位同步预分频器。
+
+ck_spre的时钟可由如下计算公式计算：
+
+Fck_spre=Frtcclk/[(PREDIV_S+1)*( PREDIV_A+1)]
+
+其中，Fck_spre即可用于更新日历时间等信息。PREDIV_A和PREDIV_S为RTC的异步和同步分频器。异步预分频器（PREDIV_A）的值选择的较大，可以最大程度降低系统功耗。要设置为32768分频，只需要设置：PREDIV_A=0X7F，即128分频；PREDIV_S=0XFF，即256分频（128*256 = 32768），即可得到1Hz的Fck_spre。
+
+STM32F407的RTC日历时间（RTC_TR）和日期（RTC_DR）寄存器，用于存储时间和日期（也可以用于设置时间和日期），可以通过与PCLK1（APB1 时钟）同步的影子寄存器来访问，这些时间和日期寄存器也可以直接访问，这样可避免等待同步的持续时间。
+
+每隔2个RTCCLK周期，当前日历值便会复制到影子寄存器，并置位RTC_ISR寄存器的RSF位。读取RTC_TR和RTC_DR来得到当前时间和日期信息（以BCD码的格式存储的）。
+
+RTC的时钟源选择及配置和使用都是通过配置寄存器来实现的，在ST固件库环境下使用RTC功能，用户不必直接访问寄存器地址，而是通过固件库提供的库函数实现。基本的库函数的文件为stm32f4xx_rtc.c和stm32f4xx_rtc.h，实验1的工程模版中已经包含。
+
+首先要准备一份工程模版，还是拷贝实验1的工程模版，并命名为：【实验8-1】STM32F407 RTC，本实验需要以文件的形式添加RTC的驱动和函数。用MDK打开这个模版，并点击左上角的“File”—>“New”建立了一个新文件，再点击“File”—>“Save”，并把这个新建的文件命名为“rtc.c”保存在本工程【实验8-1】STM32F407 RTC\BSP文件夹下再用同样的方法建立“rtc.h”文件，放在同样的位置。建立了两个文件，但是还没有添加到工程中，在MDK工程的左侧“Project”栏中，找到“BSP”文件夹，用右键单击它，并在下拉菜单中选择“Add Existing Files to Group‘BSP’”，定位找到上述新建的“rtc.c”文件，添加进去，“rtc.h”不需要添加。
+
+按照同样的方法再次建立一对文件“delay.c”和“delay.h”也都保存在BSP文件夹里，同样也把“delay.c”文件添加到BSP这个Group里，delay文件用于简单延时，前面的实验都是放在主函数里了，综合实验一般都要放进单独的文件里，“delay.c”和“delay.h”文件的内容分别是：
+
+delay.c
+
+#include "delay.h" 
+
+/*****  简单延时函数,ms,us  *****/
+void delay_us(uint16_t nus)
+{
+    uint16_t i;
+    while(nus--)
+    {
+        i = 31;         //秒表1分钟测试31
+        while(i--);
+    }
+}
+
+void delay_ms(u16 nms)
+{
+    uint16_t i;
+    while(nms--)
+    {
+        i = 33800;       //秒表1分钟测试33800
+        while(i--);
+    }
+}
+delay.h
+
+#ifndef _DELAY_H_
+#define _DELAY_H_
+#include "stm32f4xx.h"
+
+void delay_us(uint16_t nus);
+void delay_ms(u16 nms);
+
+#endif
+添加并保存好delay的驱动文件，接下来参照delay的文件形式编写“rtc.c”和“rtc.h”的空白文件：
+
+“rtc.c”中目前只写两行包含头文件：
+
+#include "rtc.h" 
+#include "delay.h" //简单延时
+“rtc.h”中目前只包含基本的文件格式和stm32f4xx.h文件：
+
+#ifndef _RTC_H_
+#define _RTC_H_
+#include "stm32f4xx.h"
+
+#endif
+由于RTC系统装上后备电池后，就是可以断电保持运行的设备，故第一次初始化配置和以后再上电的配置流程是不同的，可以使用同样能断电能保持数据的后备寄存器的里的一个数据（标志）来确定是否第一次初始化配置，参考以下几个步骤：
+
+• 开启电源系统PWR时钟
+
+• 使能RTC以及后备寄存器的写访问
+
+• 读取后备寄存器RTC_BKP_DR0的数据以判断这是不是第一次配置RTC
+
+• 开启外部低速时钟LSE并等待时钟就绪（32.768kHz晶振）
+
+• 选择外部低速时钟作为RTC的时钟源并使能RTC
+
+• 设置分频系数PREDIV_A和PREDIV_S，设置RTC格式
+
+• 初始化RTC
+
+• 设置日期和时间
+
+• 向后备寄存器RTC_BKP_DR0中写入特定数据，用以表示RTC已经配置过一次。
+
+RTC的初始化函数如下：
+
+u8 BSP_RTC_Init(void)
+{
+RTC_InitTypeDef RTC_InitStructure;
+u16 retry = 0X1FFF; 
+RCC_APB1PeriphClockCmd(RCC_APB1Periph_PWR, ENABLE);  //使能PWR时钟
+PWR_BackupAccessCmd(ENABLE);       //使能后备寄存器访问 
+    
+/*根据BKP寄存器中的值,判断是否是第一次设置 RTC? (或者没有RTC电池)*/
+if(RTC_ReadBackupRegister(RTC_BKP_DR0) != 0x5050)    
+{
+    RCC_LSEConfig(RCC_LSE_ON);    //开启LSE     
+    /*检查指定的RCC标志位设置与否,等待低速晶振就绪*/
+    while (RCC_GetFlagStatus(RCC_FLAG_LSERDY) == RESET)    
+    {
+        retry++;
+        delay_ms(10);
+    }
+    if(retry==0)return 1;//LSE 开启失败. 返回1
+    /*设置RTC时钟(RTCCLK),选择LSE作为RTC时钟*/
+    RCC_RTCCLKConfig(RCC_RTCCLKSource_LSE);
+    RCC_RTCCLKCmd(ENABLE);     //使能RTC时钟  
+
+    RTC_InitStructure.RTC_AsynchPrediv = 0x7F;//RTC异步分频系数
+    RTC_InitStructure.RTC_SynchPrediv  = 0xFF;//RTC同步分频系数
+    RTC_InitStructure.RTC_HourFormat  = RTC_HourFormat_24;//24小时格式
+    RTC_Init(&RTC_InitStructure);
+ 
+    RTC_Set_Time(13,00,00,RTC_H12_AM);     //设置时间
+    RTC_Set_Date(21,12,15,3);    //设置日期
+    /*已经配置好,保存标志到RTC_BKP_DR0(电池保存)*/
+    RTC_WriteBackupRegister(RTC_BKP_DR0,0x5050);    
+} 
+return 0;
+}
+上述RTC的初始化函数要写到“rtc.c”文件中，并将其函数名“u8 BSP_RTC_Init(void);”声明在“rtc.h”中（#endif语句之上）。
+
+编写RTC的配置函数，一个配置时间，一个配置日期，两函数都放在“rtc.c”文件中，并在“rtc.h”中声明这两个函数：
+
+ErrorStatus RTC_Set_Time(u8 hour,u8 min,u8 sec,u8 ampm)  //设置时间
+{
+RTC_TimeTypeDef RTC_TimeTypeInitStructure;
+
+RTC_TimeTypeInitStructure.RTC_Hours = hour;
+RTC_TimeTypeInitStructure.RTC_Minutes = min;
+RTC_TimeTypeInitStructure.RTC_Seconds = sec;
+RTC_TimeTypeInitStructure.RTC_H12 = ampm;
+return RTC_SetTime(RTC_Format_BIN, &RTC_TimeTypeInitStructure);
+}
+ 
+ErrorStatus RTC_Set_Date(u8 year,u8 month,u8 date,u8 week)  //设置日期
+{
+RTC_DateTypeDef RTC_DateTypeInitStructure;
+RTC_DateTypeInitStructure.RTC_Date = date;
+RTC_DateTypeInitStructure.RTC_Month = month;
+RTC_DateTypeInitStructure.RTC_WeekDay = week;
+RTC_DateTypeInitStructure.RTC_Year = year;
+return RTC_SetDate(RTC_Format_BIN, &RTC_DateTypeInitStructure);
+}
+函数声明：
+
+ErrorStatus RTC_Set_Date(u8 year,u8 month,u8 date,u8 week);
+ErrorStatus RTC_Set_Time(u8 hour,u8 min,u8 sec,u8 ampm);
+作为一个RTC实验，就必须有一个能显示时间日期的模块，青软 遨游100开发板上有一块OLED显示屏，点阵显示128*32，使用高度为16点的字符，正好可以显示两行字符或者数字如图所示：
+
+
+
+OLED显示屏的电路图：
+
+
+
+OLED显示屏与STM32F407是通过IIC总线连接的，本实验直接移植OLED的驱动到工程中。OLED驱动的相关文件有三个分别是“oled.c” “oled.c” “oledfont.h”，把这三个文件直接拷贝到当前工程的“BSP”文件夹，并在MDK左侧的“Project”栏中，找到“BSP”文件夹，用右键单击它，并在下拉菜单中选择“Add Existing Files to Group‘BSP’”，定位找到上述新建的“oled.c”文件，添加进去。此时已经移植了OLED的驱动程序到工程。
+
+在main.c中，包含所需的所有驱动文件：
+
+#include "stm32f4xx.h"
+#include "delay.h"     //简单延时
+#include "oled.h"      //128*32 OLED显示驱动
+#include "rtc.h" 
+#include "stdio.h" //包含C语言标准输入输出头文件
+    在main.c中还需要定义时间和日期的两个结构体用于读取时间，一个数组用于显示的临时数据：
+
+RTC_TimeTypeDef RTC_TimeStruct;//时间结构体
+RTC_DateTypeDef RTC_DateStruct; //日期结构体
+u8  Rtc_Data[50];//用于显示的临时数组
+main函数中，首先要初始化OLED，并让OLED显示一行字测试：
+
+delay_ms(100); //延时等待OLED上电完成
+OLED_Init();   //OLED初始化
+OLED_Clear();  //OLED清屏
+OLED_ShowCHinese(28,0,0);    //显示 青
+delay_ms(200); //延时200毫秒
+OLED_ShowCHinese(46,0,1);    //显示 软
+delay_ms(200); //延时200毫秒
+OLED_ShowCHinese(64,0,2);    //显示 集
+delay_ms(200); //延时200毫秒
+OLED_ShowCHinese(82,0,3); //显示 团
+    接下来，初始化RTC：
+
+BSP_RTC_Init();//RTC 初始化
+delay_ms(1000);//延时1秒
+    /*初始化完毕，可以进入主循环while(1)了*/
+    主循环while(1)中，循环读取时间和日期、使用sprintf功能把时间（或日期）数字转换成字符串格式放在Rtc_Data中、调用OLED显示一行字符的函数OLED_ShowString把Rtc_Data中的字符串显示到OLED显示屏上，上述过程每400毫秒循环一次，这个时间要低于1秒，以免显示走秒不及时的现象。
+
+while(1)
+{
+    RTC_GetTime(RTC_Format_BIN,&RTC_TimeStruct);//获取时间
+    sprintf((char*)Rtc_Data," Time:%02d:%02d:%02d  ", RTC_TimeStruct.RTC_Hours, RTC_TimeStruct.RTC_Minutes, RTC_TimeStruct.RTC_Seconds); 
+    OLED_ShowString(0,0,Rtc_Data,16);  //OLED字符串显示
+
+    RTC_GetDate(RTC_Format_BIN, &RTC_DateStruct);//获取日期
+    sprintf((char*)Rtc_Data,"Date:20%02d-%02d-%02d", RTC_DateStruct.RTC_Year, RTC_DateStruct.RTC_Month, RTC_DateStruct.RTC_Date); 
+    OLED_ShowString(0,2,Rtc_Data,16);  //OLED字符串显示
+    delay_ms(400);//400毫秒循环一次
+}
+编写完成后，编译->下载运行，观察开发板现象，上电以后OLED显示“青软集团”四个字后，开始显示：时、分、秒、月、日、年这些信息。
+
+ 
+
+ 
+
+
+
+ 
+
+三、实验结果
+实验结果：本实验通过配置和使用STM32F407的RTC时钟，编写了一个OLED显示的时钟，能显示时、分、秒、和日、月、年六个数据，本实验在青软遨游100开发板上需要安装纽扣电池CR1220，用于保存RTC数据和BKP寄存器数据；初始化和配置RTC和PWR寄存器，周期性的读取RTC的寄存器，移植OLED驱动程序用于显示：时、分、秒、月、日、年这些信息。    
